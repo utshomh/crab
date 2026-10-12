@@ -54,6 +54,13 @@ impl<'a> Lexer<'a> {
             '+' => TokenKind::Plus,
             '-' => TokenKind::Minus,
             '*' => TokenKind::Star,
+            '/' if self.peek() == Some('/') => {
+                self.advance();
+                while self.peek().is_some_and(|ch| ch != '\n' && ch != '\r') {
+                    self.advance();
+                }
+                TokenKind::Whitespace
+            }
             '/' => TokenKind::Slash,
             '(' => TokenKind::OpenParen,
             ')' => TokenKind::CloseParen,

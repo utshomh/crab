@@ -1,0 +1,12 @@
+// Fibonacci: the five hundredth term, with F(0) = 0 and F(1) = 1.
+// Run: cargo run -p crabi -- example/fibonacci.crab
+
+var previous = 0
+var current = 1
+for i = 1 to 500 {
+    var next = previous + current
+    previous = current
+    current = next
+}
+print previous 
+// 139423224561697880139724382870407283950070256587697307264108962948325571622863290691557658876222521294125

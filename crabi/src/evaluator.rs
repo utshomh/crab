@@ -6,7 +6,10 @@ use crab::{
         BoundBinaryOperationKind as Binary, BoundExpression, BoundStatement,
         BoundUnaryOperationKind as Unary,
     },
-    common::{diagnostic::Diagnostic, types::Object},
+    common::{
+        diagnostic::Diagnostic,
+        types::{Number, Object},
+    },
 };
 
 type EvaluationResult = Result<Object, Diagnostic>;
@@ -89,12 +92,14 @@ impl Evaluator {
                 let lower = self.evaluate_number(&statement.lower_bound)?;
                 let upper = self.evaluate_number(&statement.upper_bound)?;
                 self.with_scope(|evaluator| {
-                    for value in lower..=upper {
+                    let mut value = lower;
+                    while value <= upper {
                         evaluator
                             .bindings
                             .borrow_mut()
-                            .set(statement.identifier.clone(), Object::Number(value));
+                            .set(statement.identifier.clone(), Object::Number(value.clone()));
                         evaluator.evaluate_statement(&statement.body)?;
+                        value += 1u8;
                     }
                     Ok(Object::Unit)
                 })
@@ -102,7 +107,7 @@ impl Evaluator {
         }
     }
 
-    fn evaluate_number(&mut self, expression: &BoundExpression) -> Result<i32, Diagnostic> {
+    fn evaluate_number(&mut self, expression: &BoundExpression) -> Result<Number, Diagnostic> {
         match self.evaluate_expression(expression)? {
             Object::Number(value) => Ok(value),
             _ => Err(Diagnostic::new(
@@ -135,10 +140,7 @@ impl Evaluator {
                 let right = self.evaluate_expression(&unary.right)?;
                 match (&unary.operator.operation_kind, right) {
                     (Unary::Identity, Object::Number(value)) => Ok(Object::Number(value)),
-                    (Unary::Negation, Object::Number(value)) => value
-                        .checked_neg()
-                        .map(Object::Number)
-                        .ok_or_else(|| error("Integer overflow")),
+                    (Unary::Negation, Object::Number(value)) => Ok(Object::Number(-value)),
                     (Unary::LogicalNegation, Object::Boolean(value)) => Ok(Object::Boolean(!value)),
                     _ => Err(error("Invalid unary operand")),
                 }
@@ -153,26 +155,23 @@ impl Evaluator {
                     _ => {}
                 }
                 let right = self.evaluate_expression(&binary.right)?;
-                let number = |value: Option<i32>| {
-                    value
-                        .map(Object::Number)
-                        .ok_or_else(|| error("Integer overflow"))
-                };
                 match (&binary.operator.operation_kind, left, right) {
                     (Binary::Addition, Object::Number(a), Object::Number(b)) => {
-                        number(a.checked_add(b))
+                        Ok(Object::Number(a + b))
                     }
                     (Binary::Subtraction, Object::Number(a), Object::Number(b)) => {
-                        number(a.checked_sub(b))
+                        Ok(Object::Number(a - b))
                     }
                     (Binary::Multiplication, Object::Number(a), Object::Number(b)) => {
-                        number(a.checked_mul(b))
+                        Ok(Object::Number(a * b))
                     }
-                    (Binary::Division, Object::Number(_), Object::Number(0)) => {
+                    (Binary::Division, Object::Number(_), Object::Number(b))
+                        if b == Number::default() =>
+                    {
                         Err(error("Division by zero"))
                     }
                     (Binary::Division, Object::Number(a), Object::Number(b)) => {
-                        number(a.checked_div(b))
+                        Ok(Object::Number(a / b))
                     }
                     (Binary::Addition, Object::String(a), Object::String(b)) => {
                         Ok(Object::String(a + &b))

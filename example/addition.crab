@@ -1,0 +1,8 @@
+// Addition, assignment values, and grouping.
+// Run: cargo run -p crabi -- example/addition.crab
+
+var a = 10
+var b = 5
+print a + b // 15
+print (a = b = 3) // 3
+print (a + b) * 2 // 12

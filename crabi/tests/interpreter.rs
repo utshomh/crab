@@ -94,7 +94,6 @@ fn malformed_programs_terminate_with_syntax_errors() {
         "{ print 1",
         "{{}",
         "print",
-        "2147483648",
         "\u{e9}",
     ] {
         let output = file(source);
@@ -176,14 +175,30 @@ fn if_else_and_else_if_choose_the_correct_branch() {
 }
 
 #[test]
-fn numeric_failures_are_runtime_errors_instead_of_panics() {
-    for (source, message) in [
-        ("print 1 / 0", "Division by zero"),
-        ("print 2147483647 + 1", "Integer overflow"),
-        ("print -2147483648 - 1", "Integer overflow"),
-        ("print 2147483647 * 2", "Integer overflow"),
-        ("print -(-2147483648)", "Integer overflow"),
-        ("print -2147483648 / -1", "Integer overflow"),
+fn arithmetic_extends_beyond_fixed_width_integers() {
+    assert_output(
+        "print 2147483647 + 1 print -2147483648 - 1 print 2147483647 * 2 print -(-2147483648) print -2147483648 / -1",
+        "2147483648\n-2147483649\n4294967294\n2147483648\n2147483648\n",
+    );
+    assert_output(
+        "var huge = 10000000000000000000000000000000000000000 print huge * huge print huge + 1 print -huge - 1 print -huge < huge print huge == -(-huge) print huge != huge + 1",
+        "100000000000000000000000000000000000000000000000000000000000000000000000000000000\n10000000000000000000000000000000000000001\n-10000000000000000000000000000000000000001\ntrue\ntrue\ntrue\n",
+    );
+}
+
+#[test]
+fn division_truncates_toward_zero_and_remains_exact_for_large_integers() {
+    assert_output(
+        "print 7 / 3 print -7 / 3 print 7 / -3 print -7 / -3 print 10000000000000000000000000000000000000001 / 10",
+        "2\n-2\n-2\n2\n1000000000000000000000000000000000000000\n",
+    );
+}
+
+#[test]
+fn division_by_zero_is_still_a_runtime_error() {
+    for source in [
+        "print 1 / 0",
+        "print 1000000000000000000000000000000000 / (2 - 2)",
     ] {
         let output = file(source);
         assert_eq!(
@@ -192,13 +207,25 @@ fn numeric_failures_are_runtime_errors_instead_of_panics() {
             "{source}: {}",
             stderr(&output)
         );
-        assert!(
-            stderr(&output).contains(message),
-            "{source}: {}",
-            stderr(&output)
-        );
+        assert!(stderr(&output).contains("Division by zero"));
         assert!(!stderr(&output).contains("panicked"));
     }
+}
+
+#[test]
+fn for_ranges_support_large_positive_and_negative_bounds() {
+    assert_output(
+        "for i = 1000000000000000000000000000000000 to 1000000000000000000000000000000002 print i for i = -1000000000000000000000000000000002 to -1000000000000000000000000000000000 print i for i = 1000000000000000000000000000000002 to 1000000000000000000000000000000000 print i",
+        "1000000000000000000000000000000000\n1000000000000000000000000000000001\n1000000000000000000000000000000002\n-1000000000000000000000000000000002\n-1000000000000000000000000000000001\n-1000000000000000000000000000000000\n",
+    );
+}
+
+#[test]
+fn comment_syntax_preserves_division_strings_and_crlf() {
+    assert_output(
+        "// heading\r\nprint 8 / 2 // inline\r\nprint \"https://example.com\"\n// final comment",
+        "4\nhttps://example.com\n",
+    );
 }
 
 #[test]
@@ -246,4 +273,80 @@ fn unreadable_files_report_io_errors() {
     let output = run(&[file.0.as_os_str()], "");
     assert_eq!(output.status.code(), Some(74));
     assert!(stderr(&output).contains("Cannot read"));
+}
+
+#[test]
+fn standalone_examples_run_with_the_documented_output() {
+    for (source, expected) in [
+        (include_str!("../../example/syntax.crab"), ""),
+        (
+            include_str!("../../example/hello_world.crab"),
+            "Hello, Crab!\n",
+        ),
+        (include_str!("../../example/addition.crab"), "15\n3\n12\n"),
+        (
+            include_str!("../../example/conditions.crab"),
+            "Passed\nfalse\n",
+        ),
+        (include_str!("../../example/scope.crab"), "20\n10\n"),
+        (
+            include_str!("../../example/factorial.crab"),
+            "30414093201713378043612608166064768844377641568960512000000000000\n",
+        ),
+        (include_str!("../../example/fibonacci.crab"), "139423224561697880139724382870407283950070256587697307264108962948325571622863290691557658876222521294125\n"),
+        (
+            include_str!("../../example/big_integers.crab"),
+            "115792089237316195423570985008687907853269984665640564039457584007913129639936\n",
+        ),
+        (include_str!("../../example/gcd.crab"), "21\n"),
+        (
+            include_str!("../../example/two_counter_machine.crab"),
+            "Counter 1:\n0\nCounter 2:\n7\n",
+        ),
+    ] {
+        assert_output(source, expected);
+    }
+}
+
+#[test]
+fn machine_interpreter_handles_all_opcodes_and_both_zero_test_branches() {
+    let machine = include_str!("../../example/two_counter_machine.crab");
+    for (program, r1, r2, expected1, expected2) in [
+        ("2213", "7", "0", "0", "7"),     // transfer r1 to r2
+        ("2213", "0", "0", "0", "0"),     // r1 zero branch
+        ("1214", "0", "7", "7", "0"),     // transfer r2 to r1
+        ("1214", "0", "0", "0", "0"),     // r2 zero branch
+        ("32323011", "0", "0", "0", "1"), // increment and decrement r1
+        ("31324012", "0", "0", "1", "0"), // increment and decrement r2
+        (
+            "11",
+            "99999999999999999999999999999999999999999",
+            "0",
+            "100000000000000000000000000000000000000000",
+            "0",
+        ),
+    ] {
+        let source = machine
+            .replace("var program = 2213", &format!("var program = {program}"))
+            .replace("var r1 = 7", &format!("var r1 = {r1}"))
+            .replace("var r2 = 0", &format!("var r2 = {r2}"));
+        assert_output(
+            &source,
+            &format!("Counter 1:\n{expected1}\nCounter 2:\n{expected2}\n"),
+        );
+    }
+}
+
+#[test]
+fn machine_program_supports_large_encodings_and_configurable_addresses() {
+    let machine = include_str!("../../example/two_counter_machine.crab");
+    // At base 20: address 0 increments r1 and jumps to address 12; address 12
+    // decrements r2 and jumps to address 13, or address 14 when r2 is zero.
+    // The remaining slots halt. Packing address 12 already requires a large integer.
+    let source = format!("var encoded = 241 var position = 1 for i = 1 to 12 position = position * 8000 encoded = encoded + 5864 * position\n{}",
+        machine.replace("var base = 10", "var base = 20")
+            .replace("var program = 2213", "var program = encoded")
+            .replace("var r1 = 7", "var r1 = 0")
+            .replace("var r2 = 0", "var r2 = 1"));
+    assert_output(&source, "Counter 1:\n1\nCounter 2:\n0\n");
 }

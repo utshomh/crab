@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter, Result};
 
-type Number = i32;
+/// Signed integers with no fixed bit-width limit.
+pub use num_bigint::BigInt as Number;
 type Boolean = bool;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -22,17 +23,6 @@ impl Display for Type {
     }
 }
 
-// impl Type {
-//     pub(crate) fn default(&self) -> Object {
-//         match self {
-//             Type::Unit => Object::Unit,
-//             Type::Number => Object::Number(0),
-//             Type::Boolean => Object::Boolean(false),
-//              Type::String => Object::String(String::from("")),
-//         }
-//     }
-// }
-
 #[derive(Debug, PartialEq, Clone)]
 pub enum Object {
     Unit,
@@ -53,7 +43,7 @@ impl Object {
 
     pub fn as_number(&self) -> Number {
         match self {
-            Object::Number(n) => *n,
+            Object::Number(n) => n.clone(),
             o => panic!("Can not convert {o} to {}", Type::Number),
         }
     }

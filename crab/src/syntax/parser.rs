@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::common::{
-    diagnostic::{DiagnosticBag, Position},
-    types::Object,
+    diagnostic::DiagnosticBag,
+    types::{Number, Object},
 };
 
 use super::{
@@ -195,18 +195,6 @@ impl Parser {
     }
 
     fn parse_unary_expression(&mut self) -> Expression {
-        // The magnitude of i32::MIN cannot be represented as a positive i32.
-        if self.peek(0).kind == TokenKind::Minus
-            && self.peek(1).kind == TokenKind::Number
-            && self.peek(1).lexeme.parse::<u64>() == Ok(2147483648)
-        {
-            let minus = self.next_token();
-            let number = self.next_token();
-            return Expression::Literal(LiteralExpression::new(
-                Object::Number(i32::MIN),
-                Position::from(minus.position, number.position),
-            ));
-        }
         if self.token_matches(&[TokenKind::Plus, TokenKind::Minus, TokenKind::Bang]) {
             let operator = self.next_token();
             let right = self.parse_unary_expression();
@@ -238,14 +226,13 @@ impl Parser {
             }
             TokenKind::Number => {
                 let token = self.next_token();
-                let value = match token.lexeme.parse::<i32>() {
+                let value = match token.lexeme.parse::<Number>() {
                     Ok(value) => value,
                     Err(_) => {
-                        self.diagnostic_bag.borrow_mut().report(
-                            token.position.clone(),
-                            "Integer literal is outside the signed 32-bit range",
-                        );
-                        0
+                        self.diagnostic_bag
+                            .borrow_mut()
+                            .report(token.position.clone(), "Invalid integer literal");
+                        Number::default()
                     }
                 };
                 Expression::Literal(LiteralExpression::new(

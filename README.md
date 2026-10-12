@@ -20,11 +20,39 @@ for i = 1 to 5 {
 print factorial
 ```
 
+## Examples
+
+Each program in [example/](example/) runs independently:
+
+```sh
+cargo run -p crabi -- example/hello_world.crab
+cargo run -p crabi -- example/two_counter_machine.crab
+```
+
+| File | Topic |
+| --- | --- |
+| [syntax.crab](example/syntax.crab) | Syntax reference (comments only) |
+| [hello_world.crab](example/hello_world.crab) | Printing and string concatenation |
+| [addition.crab](example/addition.crab) | Arithmetic, assignment values, and grouping |
+| [conditions.crab](example/conditions.crab) | Conditions and short-circuit logic |
+| [scope.crab](example/scope.crab) | Local variables and shadowing |
+| [factorial.crab](example/factorial.crab) | Computing 50! |
+| [fibonacci.crab](example/fibonacci.crab) | Computing the twentieth Fibonacci number |
+| [big_integers.crab](example/big_integers.crab) | Computing 2^256 |
+| [gcd.crab](example/gcd.crab) | Euclid's algorithm |
+| [two_counter_machine.crab](example/two_counter_machine.crab) | Encoded machine interpreter and Turing-completeness construction |
+
+Change the machine program and starting counters in `two_counter_machine.crab`
+to try other computations. With unbounded integers and these machine operations,
+Crab can simulate a universal computation model (assuming unlimited memory and
+time). See [Dudenhefner's two-counter machine study](https://doi.org/10.4230/LIPIcs.FSCD.2022.16)
+for the underlying model.
+
 ## Language behavior
 
-- Values are signed 32-bit integers, booleans, and strings. Integer overflow,
-  including negating the minimum integer, and division by zero produce runtime errors.
-  Division truncates toward zero.
+- Values are signed arbitrary-precision integers, booleans, and strings. Integers
+  have no fixed bit-width limit and do not wrap. Division truncates toward zero;
+  division by zero produces a runtime error.
 - Strings may be empty, contain Unicode, or span multiple lines. Backslashes are
   literal characters; escape sequences are not currently supported.
 - `&&` and `||` short-circuit. Assignment expressions return the assigned value.
@@ -45,3 +73,4 @@ print factorial
 - `crabi`: evaluator and command-line REPL.
 - `crab/tests`: frontend regression tests.
 - `crabi/tests`: interpreter and CLI regression tests, including termination checks.
+- `example/`: syntax reference, standalone basic programs, and machine simulation.

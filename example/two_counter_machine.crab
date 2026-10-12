@@ -1,0 +1,91 @@
+// Two-counter machine interpreter and Turing-completeness construction.
+// Run: cargo run -p crabi -- example/two_counter_machine.crab
+//
+// WHY THIS SUPPORTS TURING COMPLETENESS
+// Two unbounded nonnegative counters, increments, zero-tested decrements,
+// and arbitrary instruction jumps can simulate general computation.
+// The interpreter below implements that instruction set for encoded programs.
+// A finite demonstration alone is not a proof: the construction supports any
+// finite machine program, with no fixed limit on counter values or program size.
+// Actual execution is still limited by available memory and time.
+// Reference: https://doi.org/10.4230/LIPIcs.FSCD.2022.16
+//
+// ENCODING A MACHINE PROGRAM
+// Choose base >= 5 and larger than every instruction address.
+// An instruction has three base digits:
+//   instruction = opcode + base * next + base * base * zero
+// Opcode 0: halt.
+// Opcode 1: increment r1, jump to next.
+// Opcode 2: increment r2, jump to next.
+// Opcode 3: if r1 is zero jump to zero; otherwise decrement r1 and jump to next.
+// Opcode 4: if r2 is zero jump to zero; otherwise decrement r2 and jump to next.
+// The zero field is ignored by increment and halt instructions.
+// Pack instructions in increasing address order, least significant first:
+//   slot = base * base * base
+//   program = instruction0 + instruction1 * slot + instruction2 * slot * slot + ...
+// All addresses and counters must be nonnegative. Unencoded instructions are halt.
+//
+// This sample transfers seven units from r1 to r2:
+//   address 0: decrement r1, jump to 1; if zero jump to 2 -> 213
+//   address 1: increment r2, jump to 0                    ->   2
+//   address 2: halt                                       ->   0
+// Therefore program = 213 + 2 * 1000 = 2213 when base = 10.
+// To run another machine, change only base, program, r1, and r2 below.
+
+var base = 10
+var program = 2213
+var r1 = 7
+var r2 = 0
+var pc = 0
+var running = true
+var slot = base * base * base
+
+while running {
+    // Fetch the instruction at pc. Integer arithmetic replaces array indexing.
+    var offset = 1
+    var address = 0
+    while address < pc {
+        offset = offset * slot
+        address = address + 1
+    }
+    var shifted = program / offset
+    var instruction = shifted - (shifted / slot) * slot
+
+    // Decode the three base digits without needing a remainder operator.
+    var opcode = instruction - (instruction / base) * base
+    var destinations = instruction / base
+    var next = destinations - (destinations / base) * base
+    var zero = destinations / base
+
+    if opcode == 0 {
+        running = false
+    } else if opcode == 1 {
+        r1 = r1 + 1
+        pc = next
+    } else if opcode == 2 {
+        r2 = r2 + 1
+        pc = next
+    } else if opcode == 3 {
+        if r1 == 0 {
+            pc = zero
+        } else {
+            r1 = r1 - 1
+            pc = next
+        }
+    } else if opcode == 4 {
+        if r2 == 0 {
+            pc = zero
+        } else {
+            r2 = r2 - 1
+            pc = next
+        }
+    } else {
+        print "Invalid machine opcode"
+        running = false
+    }
+}
+
+print "Counter 1:"
+print r1 // 0
+print "Counter 2:"
+print r2 // 7

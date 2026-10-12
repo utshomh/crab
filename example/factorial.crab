@@ -1,0 +1,9 @@
+// Factorial: 50! is far larger than a 64-bit integer.
+// Run: cargo run -p crabi -- example/factorial.crab
+
+var factorial = 1
+for i = 1 to 50 {
+    factorial = factorial * i
+}
+print factorial
+// 30414093201713378043612608166064768844377641568960512000000000000

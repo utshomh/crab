@@ -1,0 +1,9 @@
+// A nested declaration shadows the outer variable.
+// Run: cargo run -p crabi -- example/scope.crab
+
+var value = 10
+{
+    var value = 20
+    print value // 20
+}
+print value // 10

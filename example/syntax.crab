@@ -1,0 +1,27 @@
+// Crab syntax reference. This file contains comments only.
+// Runnable programs are in the neighboring example files.
+//
+// SYNTAX
+//   // begins a line comment; comments also work after a statement.
+//   var name = expression       declare a variable; its type is inferred
+//   name = expression           assign a value of the same type
+//   print expression            print a value followed by a newline
+//   { statements }              a lexical scope
+//   if condition statement else statement
+//   while condition statement
+//   for name = lower to upper statement
+//
+// Values: signed arbitrary-precision decimal integers, true, false, strings.
+// Identifiers: ASCII letters followed by ASCII letters or digits; no underscores.
+// Arithmetic: + - * /; division truncates toward zero and rejects zero divisors.
+// Comparisons: < <= > >=; integer and boolean equality: == !=.
+// Logic: ! && ||; && and || short-circuit.
+// Unary + and - work on integers. String + concatenates two strings.
+// Precedence, highest first: unary, * /, + -, comparisons, equality, &&, ||, =.
+// Binary operators associate left; assignment associates right and returns a value.
+// Use parentheses to group expressions. No semicolons or type annotations needed.
+// Strings use double quotes, may span lines, and preserve backslashes literally.
+// Blocks and all control-flow bodies have local declarations, even without braces.
+// Assignments may update outer variables; var may shadow or replace a declaration.
+// For ranges are inclusive and ascending, with bounds evaluated once.
+// Assigning the loop variable does not change the iteration sequence.

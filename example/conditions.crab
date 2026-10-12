@@ -1,0 +1,12 @@
+// Conditions and short-circuit logic.
+// Run: cargo run -p crabi -- example/conditions.crab
+
+var score = 75
+if score >= 50 && score <= 100 {
+    print "Passed"
+} else if score < 0 || score > 100 {
+    print "Invalid score"
+} else {
+    print "Try again"
+}
+print false && (1 / 0 == 0) // false; the division is never evaluated

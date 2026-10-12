@@ -90,18 +90,48 @@ fn incomplete_and_invalid_syntax_is_diagnosed() {
 }
 
 #[test]
-fn integer_literal_limits_are_checked() {
-    for source in ["2147483647", "-2147483648", "-0002147483648"] {
+fn integer_literals_have_arbitrary_precision() {
+    for source in [
+        "2147483647",
+        "-2147483648",
+        "-0002147483648",
+        "2147483648",
+        "-2147483649",
+        "99999999999999999999999999999",
+    ] {
         assert!(messages(&compile(source)).is_empty(), "{source}");
     }
-    for source in ["2147483648", "-2147483649", "99999999999999999999999999999"] {
-        assert!(
-            messages(&compile(source))
-                .iter()
-                .any(|m| m.contains("32-bit range")),
-            "{source}"
-        );
+    let digits = "9".repeat(1000);
+    let compilation = compile(&digits);
+    assert!(messages(&compilation).is_empty());
+    let BoundStatement::Expression(statement) = &compilation.bound_program[0] else {
+        panic!()
+    };
+    let BoundExpression::Literal(literal) = &statement.expression else {
+        panic!()
+    };
+    assert_eq!(literal.value.to_string(), digits);
+}
+
+#[test]
+fn comments_are_ignored_and_do_not_change_string_contents_or_positions() {
+    for source in [
+        "// comment",
+        "// comment\r\n// another",
+        "// \u{1f980} at EOF",
+    ] {
+        assert!(messages(&compile(source)).is_empty());
+        assert!(compile(source).bound_program.is_empty());
     }
+    let compilation = compile("// first\nprint missing // trailing");
+    let bag = compilation.diagnostic_bag.borrow();
+    assert_eq!(
+        bag.diagnostics[0]
+            .position
+            .get_line("// first\nprint missing // trailing"),
+        2
+    );
+    assert!(messages(&compile("print \"https://example.com\" // comment")).is_empty());
 }
 
 #[test]
