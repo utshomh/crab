@@ -94,7 +94,7 @@ impl Parser {
     fn parse_block_statement(&mut self) -> Statement {
         self.match_token(TokenKind::OpenBrace);
         let mut statements = vec![];
-        while self.peek(0).kind != TokenKind::CloseBrace {
+        while !self.token_matches(&[TokenKind::CloseBrace, TokenKind::Eof]) {
             statements.push(self.parse_statement());
         }
         self.match_token(TokenKind::CloseBrace);
@@ -195,6 +195,18 @@ impl Parser {
     }
 
     fn parse_unary_expression(&mut self) -> Expression {
+        // The magnitude of i32::MIN cannot be represented as a positive i32.
+        if self.peek(0).kind == TokenKind::Minus
+            && self.peek(1).kind == TokenKind::Number
+            && self.peek(1).lexeme.parse::<u64>() == Ok(2147483648)
+        {
+            let minus = self.next_token();
+            let number = self.next_token();
+            return Expression::Literal(LiteralExpression::new(
+                Object::Number(i32::MIN),
+                Position::from(minus.position, number.position),
+            ));
+        }
         if self.token_matches(&[TokenKind::Plus, TokenKind::Minus, TokenKind::Bang]) {
             let operator = self.next_token();
             let right = self.parse_unary_expression();
@@ -218,7 +230,7 @@ impl Parser {
             }
             TokenKind::True | TokenKind::False => {
                 let token = self.next_token();
-                let value = token.lexeme.parse().unwrap();
+                let value = token.kind == TokenKind::True;
                 Expression::Literal(LiteralExpression::new(
                     Object::Boolean(value),
                     token.position,
@@ -226,7 +238,16 @@ impl Parser {
             }
             TokenKind::Number => {
                 let token = self.next_token();
-                let value = token.lexeme.parse().unwrap();
+                let value = match token.lexeme.parse::<i32>() {
+                    Ok(value) => value,
+                    Err(_) => {
+                        self.diagnostic_bag.borrow_mut().report(
+                            token.position.clone(),
+                            "Integer literal is outside the signed 32-bit range",
+                        );
+                        0
+                    }
+                };
                 Expression::Literal(LiteralExpression::new(
                     Object::Number(value),
                     token.position,
@@ -251,7 +272,7 @@ impl Parser {
         if index < self.tokens.len() {
             self.tokens[index].clone()
         } else {
-            Token::new(TokenKind::Eof, "EOF".to_string(), Position::new(0, 0))
+            self.tokens.last().expect("lexer always emits EOF").clone()
         }
     }
 
@@ -276,7 +297,9 @@ impl Parser {
                 token.kind,
             );
             let token = Token::new(kind, "%GENERATED%".to_string(), self.peek(0).position);
-            self.advance();
+            if self.peek(0).kind != TokenKind::Eof {
+                self.advance();
+            }
             token
         }
     }

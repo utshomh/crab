@@ -1,19 +1,19 @@
 use std::{cell::RefCell, rc::Rc};
 
+use super::token::{Token, TokenKind};
 use crate::common::diagnostic::{DiagnosticBag, Position};
 
-use super::token::{Token, TokenKind};
-
-pub(crate) struct Lexer {
-    source: Vec<char>,
+pub(crate) struct Lexer<'a> {
+    source: &'a str,
+    // All positions are UTF-8 byte offsets at character boundaries.
     current: usize,
     pub(crate) diagnostic_bag: Rc<RefCell<DiagnosticBag>>,
 }
 
-impl Lexer {
-    pub(crate) fn new(source: &str, diagnostic_bag: Rc<RefCell<DiagnosticBag>>) -> Self {
+impl<'a> Lexer<'a> {
+    pub(crate) fn new(source: &'a str, diagnostic_bag: Rc<RefCell<DiagnosticBag>>) -> Self {
         Self {
-            source: source.chars().collect(),
+            source,
             current: 0,
             diagnostic_bag,
         }
@@ -23,242 +23,115 @@ impl Lexer {
         let mut tokens = Vec::new();
         loop {
             let token = self.next_token();
-            if token.kind == TokenKind::Eof {
-                tokens.push(token);
-                break;
-            } else if token.kind == TokenKind::Whitespace || token.kind == TokenKind::Invalid {
-                continue;
-            } else {
-                tokens.push(token);
+            match token.kind {
+                TokenKind::Eof => {
+                    tokens.push(token);
+                    break;
+                }
+                TokenKind::Whitespace | TokenKind::Invalid => {}
+                _ => tokens.push(token),
             }
         }
         tokens
     }
 
+    fn peek(&self) -> Option<char> {
+        self.source[self.current..].chars().next()
+    }
+
+    fn advance(&mut self) -> Option<char> {
+        let ch = self.peek()?;
+        self.current += ch.len_utf8();
+        Some(ch)
+    }
+
     fn next_token(&mut self) -> Token {
-        if self.source.len() <= self.current {
-            Token::new(
-                TokenKind::Eof,
-                "\0".to_string(),
-                Position::new(self.current - 1, self.current),
-            )
-        } else {
-            match self.next_char() {
-                '+' => Token::new(
-                    TokenKind::Plus,
-                    "+".to_string(),
-                    Position::new(self.current - 1, self.current),
-                ),
-                '-' => Token::new(
-                    TokenKind::Minus,
-                    "-".to_string(),
-                    Position::new(self.current - 1, self.current),
-                ),
-                '*' => Token::new(
-                    TokenKind::Star,
-                    "*".to_string(),
-                    Position::new(self.current - 1, self.current),
-                ),
-                '/' => Token::new(
-                    TokenKind::Slash,
-                    "/".to_string(),
-                    Position::new(self.current - 1, self.current),
-                ),
-
-                '>' => {
-                    if self.peek(0) == '=' {
-                        self.advance();
-                        Token::new(
-                            TokenKind::GreaterEqual,
-                            ">=".to_string(),
-                            Position::new(self.current - 2, self.current),
-                        )
-                    } else {
-                        Token::new(
-                            TokenKind::Greater,
-                            ">".to_string(),
-                            Position::new(self.current - 1, self.current),
-                        )
-                    }
-                }
-                '<' => {
-                    if self.peek(0) == '=' {
-                        self.advance();
-                        Token::new(
-                            TokenKind::LesserEqual,
-                            "<=".to_string(),
-                            Position::new(self.current - 2, self.current),
-                        )
-                    } else {
-                        Token::new(
-                            TokenKind::Lesser,
-                            "<".to_string(),
-                            Position::new(self.current - 1, self.current),
-                        )
-                    }
-                }
-
-                '!' => {
-                    if self.peek(0) == '=' {
-                        self.advance();
-                        Token::new(
-                            TokenKind::BangEqual,
-                            "!=".to_string(),
-                            Position::new(self.current - 2, self.current),
-                        )
-                    } else {
-                        Token::new(
-                            TokenKind::Bang,
-                            "!".to_string(),
-                            Position::new(self.current - 1, self.current),
-                        )
-                    }
-                }
-                '=' => {
-                    if self.peek(0) == '=' {
-                        self.advance();
-                        Token::new(
-                            TokenKind::EqualEqual,
-                            "==".to_string(),
-                            Position::new(self.current - 2, self.current),
-                        )
-                    } else {
-                        Token::new(
-                            TokenKind::Equal,
-                            "=".to_string(),
-                            Position::new(self.current - 1, self.current),
-                        )
-                    }
-                }
-                '&' => {
-                    if self.peek(0) == '&' {
-                        self.advance();
-                        Token::new(
-                            TokenKind::AmpersandAmpersand,
-                            "&&".to_string(),
-                            Position::new(self.current - 2, self.current),
-                        )
-                    } else {
-                        Token::new(
-                            TokenKind::Ampersand,
-                            "&".to_string(),
-                            Position::new(self.current - 1, self.current),
-                        )
-                    }
-                }
-                '|' => {
-                    if self.peek(0) == '|' {
-                        self.advance();
-                        Token::new(
-                            TokenKind::PipePipe,
-                            "||".to_string(),
-                            Position::new(self.current - 2, self.current),
-                        )
-                    } else {
-                        Token::new(
-                            TokenKind::Pipe,
-                            "|".to_string(),
-                            Position::new(self.current - 1, self.current),
-                        )
-                    }
-                }
-
-                '(' => Token::new(
-                    TokenKind::OpenParen,
-                    "(".to_string(),
-                    Position::new(self.current - 1, self.current),
-                ),
-                ')' => Token::new(
-                    TokenKind::CloseParen,
-                    ")".to_string(),
-                    Position::new(self.current - 1, self.current),
-                ),
-                '{' => Token::new(
-                    TokenKind::OpenBrace,
-                    "{".to_string(),
-                    Position::new(self.current - 1, self.current),
-                ),
-                '}' => Token::new(
-                    TokenKind::CloseBrace,
-                    "}".to_string(),
-                    Position::new(self.current - 1, self.current),
-                ),
-
-                '"' => {
-                    let start = self.current - 1;
+        let start = self.current;
+        let Some(ch) = self.advance() else {
+            return Token::new(TokenKind::Eof, String::new(), Position::new(start, start));
+        };
+        let kind = match ch {
+            '+' => TokenKind::Plus,
+            '-' => TokenKind::Minus,
+            '*' => TokenKind::Star,
+            '/' => TokenKind::Slash,
+            '(' => TokenKind::OpenParen,
+            ')' => TokenKind::CloseParen,
+            '{' => TokenKind::OpenBrace,
+            '}' => TokenKind::CloseBrace,
+            '>' | '<' | '!' | '=' | '&' | '|' => {
+                let second = match ch {
+                    '&' => '&',
+                    '|' => '|',
+                    _ => '=',
+                };
+                let paired = self.peek() == Some(second);
+                if paired {
                     self.advance();
-                    while self.peek(0) != '"' {
-                        self.advance();
-                    }
-                    self.advance();
-                    Token::new(
-                        TokenKind::String,
-                        self.source[start + 1..self.current - 1].iter().collect(),
-                        Position::new(start, self.current),
-                    )
                 }
-
-                char => {
-                    if char.is_ascii_whitespace() {
-                        let start = self.current - 1;
-                        while self.peek(0).is_ascii_whitespace() {
-                            self.advance();
-                        }
-                        Token::new(
-                            TokenKind::Whitespace,
-                            self.source[start..self.current].iter().collect(),
-                            Position::new(start, self.current),
-                        )
-                    } else if char.is_ascii_digit() {
-                        let start = self.current - 1;
-                        while self.peek(0).is_ascii_digit() {
-                            self.advance();
-                        }
-                        Token::new(
-                            TokenKind::Number,
-                            self.source[start..self.current].iter().collect(),
-                            Position::new(start, self.current),
-                        )
-                    } else if char.is_ascii_alphabetic() {
-                        let start = self.current - 1;
-                        while self.peek(0).is_ascii_alphanumeric() {
-                            self.advance();
-                        }
-                        let lexeme = self.source[start..self.current].iter().collect::<String>();
-                        let kind = TokenKind::get_lexeme_type(&lexeme);
-                        Token::new(kind, lexeme, Position::new(start, self.current))
-                    } else {
-                        self.diagnostic_bag.borrow_mut().unexpected_character(
-                            Position::new(self.current - 1, self.current),
-                            char,
-                        );
-                        Token::new(
-                            TokenKind::Invalid,
-                            char.to_string(),
-                            Position::new(self.current - 1, self.current),
-                        )
-                    }
+                match (ch, paired) {
+                    ('>', true) => TokenKind::GreaterEqual,
+                    ('>', false) => TokenKind::Greater,
+                    ('<', true) => TokenKind::LesserEqual,
+                    ('<', false) => TokenKind::Lesser,
+                    ('!', true) => TokenKind::BangEqual,
+                    ('!', false) => TokenKind::Bang,
+                    ('=', true) => TokenKind::EqualEqual,
+                    ('=', false) => TokenKind::Equal,
+                    ('&', true) => TokenKind::AmpersandAmpersand,
+                    ('&', false) => TokenKind::Ampersand,
+                    ('|', true) => TokenKind::PipePipe,
+                    ('|', false) => TokenKind::Pipe,
+                    _ => unreachable!(),
                 }
             }
-        }
-    }
-
-    fn peek(&self, offset: usize) -> char {
-        let index = offset + self.current;
-        if index < self.source.len() {
-            self.source[index]
-        } else {
-            '\0'
-        }
-    }
-
-    fn advance(&mut self) {
-        self.current += 1;
-    }
-
-    fn next_char(&mut self) -> char {
-        let char = self.peek(0);
-        self.advance();
-        char
+            '"' => {
+                let content_start = self.current;
+                while self.peek().is_some_and(|ch| ch != '"') {
+                    self.advance();
+                }
+                let content_end = self.current;
+                if self.advance().is_none() {
+                    self.diagnostic_bag.borrow_mut().report(
+                        Position::new(start, self.current),
+                        "Unterminated string literal",
+                    );
+                }
+                return Token::new(
+                    TokenKind::String,
+                    self.source[content_start..content_end].to_owned(),
+                    Position::new(start, self.current),
+                );
+            }
+            ch if ch.is_ascii_whitespace() => {
+                while self.peek().is_some_and(|ch| ch.is_ascii_whitespace()) {
+                    self.advance();
+                }
+                TokenKind::Whitespace
+            }
+            ch if ch.is_ascii_digit() => {
+                while self.peek().is_some_and(|ch| ch.is_ascii_digit()) {
+                    self.advance();
+                }
+                TokenKind::Number
+            }
+            ch if ch.is_ascii_alphabetic() => {
+                while self.peek().is_some_and(|ch| ch.is_ascii_alphanumeric()) {
+                    self.advance();
+                }
+                TokenKind::get_lexeme_type(&self.source[start..self.current])
+            }
+            ch => {
+                self.diagnostic_bag
+                    .borrow_mut()
+                    .unexpected_character(Position::new(start, self.current), ch);
+                TokenKind::Invalid
+            }
+        };
+        Token::new(
+            kind,
+            self.source[start..self.current].to_owned(),
+            Position::new(start, self.current),
+        )
     }
 }

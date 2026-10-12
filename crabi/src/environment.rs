@@ -26,13 +26,24 @@ impl Environment {
         }
     }
 
-    pub(crate) fn reset(&mut self, name: String, object: Object) {
-        if self.bindings.get(&name).is_some() {
-            self.bindings.insert(name, object);
+    pub(crate) fn reset(&mut self, name: String, object: Object) -> bool {
+        if let Some(value) = self.bindings.get_mut(&name) {
+            *value = object;
+            true
         } else if let Some(outer) = &self.outer {
             outer.borrow_mut().reset(name, object)
         } else {
-            return;
+            false
+        }
+    }
+
+    pub(crate) fn snapshot(&self) -> Self {
+        Self {
+            bindings: self.bindings.clone(),
+            outer: self
+                .outer
+                .as_ref()
+                .map(|outer| Rc::new(RefCell::new(outer.borrow().snapshot()))),
         }
     }
 

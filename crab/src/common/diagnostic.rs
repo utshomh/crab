@@ -21,23 +21,21 @@ impl Position {
     }
 
     pub fn get_line(&self, source: &str) -> usize {
-        let mut line = 1;
-        for char in source.chars() {
-            if char == '\n' {
-                line += 1;
-            }
-        }
-        line
+        1 + source.as_bytes()[..self.start.min(source.len())]
+            .iter()
+            .filter(|&&byte| byte == b'\n')
+            .count()
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub position: Position,
     pub message: String,
 }
 
 impl Diagnostic {
-    fn new(position: Position, message: String) -> Self {
+    pub fn new(position: Position, message: String) -> Self {
         Self { position, message }
     }
 }
@@ -51,6 +49,11 @@ impl DiagnosticBag {
         Self {
             diagnostics: Vec::new(),
         }
+    }
+
+    pub(crate) fn report(&mut self, position: Position, message: impl Into<String>) {
+        self.diagnostics
+            .push(Diagnostic::new(position, message.into()));
     }
 
     pub(crate) fn unexpected_character(&mut self, position: Position, char: char) {

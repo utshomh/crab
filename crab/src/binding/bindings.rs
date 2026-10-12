@@ -26,13 +26,14 @@ impl Bindings {
         }
     }
 
-    pub(crate) fn reset(&mut self, name: String, typ: Type) {
-        if self.bindings.get(&name).is_some() {
-            self.bindings.insert(name, typ);
-        } else if let Some(outer) = &self.outer {
-            outer.borrow_mut().reset(name, typ)
-        } else {
-            return;
+    /// Clone this scope and its parents without sharing mutable binding state.
+    pub fn snapshot(&self) -> Self {
+        Self {
+            bindings: self.bindings.clone(),
+            outer: self
+                .outer
+                .as_ref()
+                .map(|outer| Rc::new(RefCell::new(outer.borrow().snapshot()))),
         }
     }
 

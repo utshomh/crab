@@ -85,12 +85,22 @@ impl Binder {
         BoundStatement::Block(BoundBlockStatement::new(statements))
     }
 
+    // Every control-flow body has its own lexical scope, including unbraced bodies.
+    fn bind_scoped_statement(&mut self, statement: Statement) -> BoundStatement {
+        match statement {
+            Statement::Block(block) => self.bind_block_statement(block),
+            statement => self.bind_block_statement(BlockStatement {
+                statements: vec![statement],
+            }),
+        }
+    }
+
     fn bind_if_statement(&mut self, statement: IfStatement) -> BoundStatement {
         let condition = self.bind_expression(statement.condition.clone());
         if condition.get_type() == Type::Boolean {
-            let consequence = self.bind_statement(*statement.consequence);
+            let consequence = self.bind_scoped_statement(*statement.consequence);
             let else_clause =
-                (*statement.else_clause).map(|statement| self.bind_statement(statement));
+                (*statement.else_clause).map(|statement| self.bind_scoped_statement(statement));
             BoundStatement::If(BoundIfStatement::new(condition, consequence, else_clause))
         } else {
             self.diagnostic_bag.borrow_mut().invalid_expression_type(
@@ -107,7 +117,7 @@ impl Binder {
     fn bind_while_statement(&mut self, statement: WhileStatement) -> BoundStatement {
         let condition = self.bind_expression(statement.condition.clone());
         if condition.get_type() == Type::Boolean {
-            let body = self.bind_statement(*statement.body);
+            let body = self.bind_scoped_statement(*statement.body);
             BoundStatement::While(BoundWhileStatement::new(condition, body))
         } else {
             self.diagnostic_bag.borrow_mut().invalid_expression_type(
@@ -126,10 +136,13 @@ impl Binder {
         let upper_bound = self.bind_expression(statement.upper_bound);
         match (lower_bound.get_type(), upper_bound.get_type()) {
             (Type::Number, Type::Number) => {
+                let outer = Rc::clone(&self.bindings);
+                self.bindings = Rc::new(RefCell::new(Bindings::extend(Rc::clone(&outer))));
                 self.bindings
                     .borrow_mut()
                     .set(statement.identifier.lexeme.clone(), Type::Number);
-                let body = self.bind_statement(*statement.body);
+                let body = self.bind_scoped_statement(*statement.body);
+                self.bindings = outer;
                 BoundStatement::For(BoundForStatement::new(
                     statement.identifier.lexeme,
                     lower_bound,
@@ -138,16 +151,15 @@ impl Binder {
                 ))
             }
             (_, _) => {
-                self.diagnostic_bag.borrow_mut().invalid_expression_type(
-                    lower_bound.get_position(),
-                    Type::Number,
-                    lower_bound.get_type(),
-                );
-                self.diagnostic_bag.borrow_mut().invalid_expression_type(
-                    upper_bound.get_position(),
-                    Type::Number,
-                    upper_bound.get_type(),
-                );
+                for bound in [&lower_bound, &upper_bound] {
+                    if bound.get_type() != Type::Number {
+                        self.diagnostic_bag.borrow_mut().invalid_expression_type(
+                            bound.get_position(),
+                            Type::Number,
+                            bound.get_type(),
+                        );
+                    }
+                }
                 BoundStatement::Expression(BoundExpressionStatement::new(BoundExpression::Literal(
                     BoundLiteralExpression::new(Object::Unit, statement.identifier.position),
                 )))
@@ -255,10 +267,6 @@ impl Binder {
         let typ = self.bindings.borrow().get(&expression.identifier.lexeme);
         if let Some(typ) = typ {
             if typ == bound_expression.get_type() {
-                self.bindings.borrow_mut().reset(
-                    expression.identifier.lexeme.clone(),
-                    bound_expression.get_type(),
-                );
                 BoundExpression::Assignment(BoundAssignmentExpression::new(
                     expression.identifier.lexeme.clone(),
                     bound_expression,

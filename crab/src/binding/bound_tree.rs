@@ -87,7 +87,7 @@ impl BoundUnaryOperator {
     }
 
     pub fn bind(operator_kind: TokenKind, right_type: Type) -> Option<Self> {
-        let operators = vec![
+        let operators = [
             BoundUnaryOperator::new(
                 TokenKind::Plus,
                 BoundUnaryOperationKind::Identity,
@@ -140,7 +140,7 @@ impl BoundBinaryOperator {
     }
 
     pub fn bind(operator_kind: TokenKind, left_type: Type, right_type: Type) -> Option<Self> {
-        let operators = vec![
+        let operators = [
             BoundBinaryOperator::new(
                 TokenKind::Plus,
                 BoundBinaryOperationKind::Addition,
