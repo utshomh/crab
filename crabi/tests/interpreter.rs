@@ -350,3 +350,90 @@ fn machine_program_supports_large_encodings_and_configurable_addresses() {
             .replace("var r2 = 0", "var r2 = 1"));
     assert_output(&source, "Counter 1:\n1\nCounter 2:\n0\n");
 }
+
+fn life_output(width: usize, height: usize, generations: usize, seed: &[(usize, usize)]) -> String {
+    let mut board = vec![vec![false; width]; height];
+    for &(x, y) in seed {
+        board[y][x] = true;
+    }
+    let mut output = String::new();
+    for generation in 0..=generations {
+        output.push_str(&format!("Generation:\n{generation}\n"));
+        for row in &board {
+            for &alive in row {
+                output.push(if alive { '#' } else { '.' });
+            }
+            output.push('\n');
+        }
+        output.push('\n');
+        let mut next = vec![vec![false; width]; height];
+        for y in 0..height {
+            for x in 0..width {
+                let mut neighbors = 0;
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        if let (Some(nx), Some(ny)) =
+                            (x.checked_add_signed(dx), y.checked_add_signed(dy))
+                        {
+                            if nx < width && ny < height && board[ny][nx] {
+                                neighbors += 1;
+                            }
+                        }
+                    }
+                }
+                next[y][x] = neighbors == 3 || (board[y][x] && neighbors == 2);
+            }
+        }
+        board = next;
+    }
+    output
+}
+
+#[test]
+fn game_of_life_example_evolves_a_glider() {
+    let source = include_str!("../../example/game_of_life.crab");
+    let seed = [(2, 1), (3, 2), (1, 3), (2, 3), (3, 3)];
+    assert_output(source, &life_output(10, 10, 4, &seed));
+}
+
+#[test]
+fn game_of_life_handles_still_lifes_oscillators_edges_and_large_grids() {
+    let example = include_str!("../../example/game_of_life.crab");
+    let seed_start = example.find("        // BEGIN SEED").unwrap();
+    let seed_end = example.find("        // END SEED").unwrap();
+    for (width, height, generations, seed) in [
+        (5, 5, 3, vec![(1, 1), (2, 1), (1, 2), (2, 2)]), // stable block
+        (5, 5, 4, vec![(1, 2), (2, 2), (3, 2)]),         // blinker oscillator
+        (3, 3, 1, vec![(1, 1)]),                         // isolated cell dies
+        (3, 3, 2, vec![(0, 0), (1, 0), (2, 0)]),         // fixed edges, no row wrapping
+        (1, 1, 1, vec![(0, 0)]),                         // all neighbors out of bounds
+        (4, 3, 2, vec![]),                               // empty rectangular grid
+        (10, 10, 2, vec![(8, 8), (9, 8), (8, 9), (9, 9)]), // bits beyond 64-bit storage
+        (4, 3, 0, vec![(1, 1)]),                         // only the initial generation
+    ] {
+        let condition = if seed.is_empty() {
+            "false".to_owned()
+        } else {
+            seed.iter()
+                .map(|(x, y)| format!("(x == {x} && y == {y})"))
+                .collect::<Vec<_>>()
+                .join(" || ")
+        };
+        let mut source = example.to_owned();
+        source.replace_range(
+            seed_start..seed_end,
+            &format!("        if {condition} {{ board = board + weight }}\n"),
+        );
+        source = source
+            .replace("var width = 10", &format!("var width = {width}"))
+            .replace("var height = 10", &format!("var height = {height}"))
+            .replace(
+                "var generations = 4",
+                &format!("var generations = {generations}"),
+            );
+        assert_output(&source, &life_output(width, height, generations, &seed));
+    }
+}

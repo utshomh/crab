@@ -1,0 +1,89 @@
+// Conway's Game of Life using only existing Crab language features.
+// Run: cargo run -p crabi -- example/game_of_life.crab
+// '#' is alive; '.' is dead. Generation 0 is the initial grid.
+// Change width, height, generations, or the seed condition below to experiment.
+// Width and height must be positive; generations must be nonnegative.
+// The grid has fixed boundaries: cells outside it are dead, without wrapping.
+//
+// Storage: one arbitrary-precision nonnegative integer contains the whole grid.
+// Cell (x, y) is bit y * width + x, with weight 2^(y * width + x).
+// Extract a bit with quotient - (quotient / 2) * 2, where quotient = board / weight.
+// Build a separate next-generation integer so all updates happen simultaneously.
+// Rules: a live cell survives with 2 or 3 neighbors; a dead cell is born with 3.
+
+var width = 10
+var height = 10
+var generations = 4
+
+// Moving up/down a row divides/multiplies a cell's weight by rowStride.
+var rowStride = 1
+for column = 1 to width {
+    rowStride = rowStride * 2
+}
+
+// Seed a glider. Its five cells shift one step down and right every four turns.
+var board = 0
+var weight = 1
+for y = 0 to height - 1 {
+    for x = 0 to width - 1 {
+        // BEGIN SEED
+        if (x == 2 && y == 1) || (x == 3 && y == 2) || (x >= 1 && x <= 3 && y == 3) {
+            board = board + weight
+        }
+        // END SEED
+        weight = weight * 2
+    }
+}
+
+for generation = 0 to generations {
+    print "Generation:"
+    print generation
+    var next = 0
+    weight = 1
+
+    for y = 0 to height - 1 {
+        var row = ""
+        for x = 0 to width - 1 {
+            var quotient = board / weight
+            var alive = quotient - (quotient / 2) * 2
+            if alive == 1 {
+                row = row + "#"
+            } else {
+                row = row + "."
+            }
+
+            if generation < generations {
+                var neighbors = 0
+                for dy = -1 to 1 {
+                    for dx = -1 to 1 {
+                        var nx = x + dx
+                        var ny = y + dy
+                        if (dx != 0 || dy != 0) && nx >= 0 && nx < width && ny >= 0 && ny < height {
+                            var neighborWeight = weight
+                            if dy == -1 {
+                                neighborWeight = neighborWeight / rowStride
+                            } else if dy == 1 {
+                                neighborWeight = neighborWeight * rowStride
+                            }
+                            if dx == -1 {
+                                neighborWeight = neighborWeight / 2
+                            } else if dx == 1 {
+                                neighborWeight = neighborWeight * 2
+                            }
+                            var neighbor = board / neighborWeight
+                            neighbors = neighbors + neighbor - (neighbor / 2) * 2
+                        }
+                    }
+                }
+
+                if neighbors == 3 || (alive == 1 && neighbors == 2) {
+                    next = next + weight
+                }
+            }
+            weight = weight * 2
+        }
+        print row
+    }
+    print ""
+    board = next
+}

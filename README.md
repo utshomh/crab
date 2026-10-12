@@ -40,7 +40,13 @@ cargo run -p crabi -- example/two_counter_machine.crab
 | [fibonacci.crab](example/fibonacci.crab) | Computing the twentieth Fibonacci number |
 | [big_integers.crab](example/big_integers.crab) | Computing 2^256 |
 | [gcd.crab](example/gcd.crab) | Euclid's algorithm |
+| [game_of_life.crab](example/game_of_life.crab) | Game of Life on an integer-encoded grid |
 | [two_counter_machine.crab](example/two_counter_machine.crab) | Encoded machine interpreter and Turing-completeness construction |
+
+Run Game of Life with `cargo run -p crabi -- example/game_of_life.crab`.
+It prints a glider on a 10 by 10 grid for generations 0 through 4. Edit the
+size, generation count, and seed condition in the file to try other patterns.
+Cells outside the grid are dead; the edges do not wrap.
 
 Change the machine program and starting counters in `two_counter_machine.crab`
 to try other computations. With unbounded integers and these machine operations,
