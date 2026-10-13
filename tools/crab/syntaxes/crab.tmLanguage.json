@@ -1,0 +1,86 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Crab",
+  "scopeName": "source.crab",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.crab",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.crab",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": []
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.crab",
+          "match": "\\b(if|else|while|for|to)\\b"
+        },
+        {
+          "name": "keyword.other.crab",
+          "match": "\\b(var|print)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.crab",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.crab",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.logical.crab",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.comparison.crab",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.assignment.crab",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arithmetic.crab",
+          "match": "[+\\-*/]"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.crab",
+          "match": "\\b[a-zA-Z][a-zA-Z0-9]*\\b"
+        }
+      ]
+    }
+  }
+}

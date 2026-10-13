@@ -1,0 +1,35 @@
+{
+  "name": "crab",
+  "displayName": "Crab",
+  "description": "Syntax highlighting for Crab ",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.140.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "crab",
+        "aliases": [
+          "Crab",
+          "crab"
+        ],
+        "extensions": [
+          ".crab",
+          ".crb"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "crab",
+        "scopeName": "source.crab",
+        "path": "./syntaxes/crab.tmLanguage.json"
+      }
+    ]
+  }
+}
