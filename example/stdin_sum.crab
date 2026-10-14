@@ -1,0 +1,19 @@
+// Read decimal integers from standard input until EOF; blank lines are ignored.
+// Run: cargo run -p crabi -- example/stdin_sum.crab
+// Pipe a text file, or enter lines and signal EOF (Ctrl+D / Ctrl+Z then Enter).
+
+var total = 0
+var count = 0
+var line = readLine()
+
+while !line.eof {
+    if len(trim(line.text)) > 0 {
+        total = total + parseNumber(line.text)
+        count = count + 1
+    }
+
+    line = readLine()
+}
+
+print('Count:', count)
+print('Total:', total)

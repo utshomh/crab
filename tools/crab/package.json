@@ -2,7 +2,7 @@
   "name": "crab",
   "displayName": "Crab",
   "description": "Syntax highlighting for Crab ",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "engines": {
     "vscode": "^1.140.0"
   },

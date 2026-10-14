@@ -24,9 +24,25 @@ impl Binder {
                 if !matches!(**key, Type::Number | Type::String) {
                     self.report(position, "Dictionary keys must be Number or String");
                 }
+
                 self.validate_type(value, position);
             }
+
             Type::List(element) => self.validate_type(element, position),
+            Type::Record(fields) => {
+                for typ in fields.values() {
+                    self.validate_type(typ, position);
+                }
+            }
+
+            Type::Function(parameters, result) => {
+                for typ in parameters {
+                    self.validate_type(typ, position);
+                }
+
+                self.validate_type(result, position);
+            }
+
             _ => {}
         }
     }
@@ -41,12 +57,13 @@ impl Binder {
         self.bind_with_type(expression, Some(Type::Number))
     }
 
-    fn literal_key(expression: &BoundExpression) -> Option<&str> {
+    pub(super) fn literal_key(expression: &BoundExpression) -> Option<&str> {
         if let BoundExpression::Literal(literal) = expression {
             if let Object::String(key) = &literal.value {
                 return Some(key);
             }
         }
+
         None
     }
 
@@ -65,6 +82,7 @@ impl Binder {
                     if let Some(value) = fields.get(name) {
                         return value.clone();
                     }
+
                     if !allow_missing {
                         self.report(position, format!("Record has no field '{name}'"));
                     }
@@ -74,19 +92,24 @@ impl Binder {
                         "Record access requires a literal field name; use a Map for dynamic keys",
                     );
                 }
+
                 return Type::Unit;
             }
+
             _ => {
                 self.report(position, format!("Cannot index {typ}"));
+
                 return Type::Unit;
             }
         };
+
         if index.get_type() != key {
             self.report(
                 position,
                 format!("Expected {key} index, got {}", index.get_type()),
             );
         }
+
         value
     }
 
@@ -107,7 +130,8 @@ impl Binder {
 
         let outer = Rc::clone(&self.bindings);
         self.bindings = Rc::new(RefCell::new(Bindings::extend(Rc::clone(&outer))));
-        self.bindings
+        let symbol = self
+            .bindings
             .borrow_mut()
             .set(statement.identifier.lexeme.clone(), typ);
 
@@ -115,7 +139,7 @@ impl Binder {
         self.bindings = outer;
 
         BoundStatement::Each(BoundEachStatement {
-            name: statement.identifier.lexeme,
+            name: symbol,
             iterable,
             body: Box::new(body),
         })
@@ -235,30 +259,9 @@ impl Binder {
                 (Kind::Index(Box::new(target), Box::new(index)), typ)
             }
 
-            Syntax::Call(name, expressions) => {
-                let mut args: Vec<BoundExpression> = Vec::new();
-                for (index, expression) in expressions.into_iter().enumerate() {
-                    // Container types provide context for otherwise ambiguous empty values.
-                    let expected = if let Some(first) = args.first() {
-                        match (name.as_str(), index, first.get_type()) {
-                            ("push", 1, Type::List(element)) => Some(*element),
-                            ("get", 2, Type::List(element)) => Some(*element),
-                            ("get", 2, Type::Map(_, value)) => Some(*value),
-                            ("get", 2, Type::Record(fields)) => args
-                                .get(1)
-                                .and_then(Self::literal_key)
-                                .and_then(|key| fields.get(key).cloned()),
-                            _ => None,
-                        }
-                    } else {
-                        None
-                    };
-                    args.push(self.bind_with_type(expression, expected));
-                }
-
-                let typ = self.builtin_type(&name, &args, &position);
-
-                (Kind::Call(name, args), typ)
+            Syntax::Call(callee, expressions) => {
+                let (callee, args, result) = self.bind_call(*callee, expressions, &position);
+                (Kind::Call(Box::new(callee), args), result)
             }
 
             Syntax::Assign(target, value) => {
@@ -277,11 +280,11 @@ impl Binder {
                     }
                 };
 
-                let mut typ = self.bindings.borrow().get(&name).unwrap_or(Type::Unit);
-
-                if typ == Type::Unit {
+                let binding = self.bindings.borrow().resolve(&name);
+                let (mut typ, name) = binding.unwrap_or_else(|| {
                     self.report(&position, format!("Name '{name}' is not defined"));
-                }
+                    (Type::Unit, name)
+                });
 
                 let mut indices = Vec::new();
 
@@ -316,6 +319,7 @@ impl Binder {
             Expression::Parenthesized(expression) => {
                 Self::assignment_path(*expression.expression, indices)
             }
+
             Expression::Collection(CollectionExpression {
                 kind: Syntax::Index(target, index),
                 ..
@@ -324,17 +328,89 @@ impl Binder {
                 indices.push(*index);
                 Some(root)
             }
+
             _ => None,
         }
     }
 
-    fn builtin_type(&mut self, name: &str, args: &[BoundExpression], position: &Position) -> Type {
+    pub(super) fn builtin_type(
+        &mut self,
+        name: &str,
+        args: &[BoundExpression],
+        position: &Position,
+    ) -> Type {
+        if let Some((arity, result)) = match name {
+            "input" => Some((1, Type::String)),
+            "readLine" => Some((
+                0,
+                Type::Record(BTreeMap::from([
+                    ("text".into(), Type::String),
+                    ("eof".into(), Type::Boolean),
+                ])),
+            )),
+            "readAll" => Some((0, Type::String)),
+            "readFile" | "trim" => Some((1, Type::String)),
+            "readLines" => Some((1, Type::List(Box::new(Type::String)))),
+            "split" => Some((2, Type::List(Box::new(Type::String)))),
+            "parseNumber" => Some((1, Type::Number)),
+            "parseBoolean" => Some((1, Type::Boolean)),
+            "tryParseNumber" => Some((
+                1,
+                Type::Record(BTreeMap::from([
+                    ("ok".into(), Type::Boolean),
+                    ("value".into(), Type::Number),
+                ])),
+            )),
+            "tryParseBoolean" => Some((
+                1,
+                Type::Record(BTreeMap::from([
+                    ("ok".into(), Type::Boolean),
+                    ("value".into(), Type::Boolean),
+                ])),
+            )),
+            _ => None,
+        } {
+            if args.len() != arity && !(name == "input" && args.is_empty()) {
+                self.report(
+                    position,
+                    format!(
+                        "'{name}' expects {} arguments, got {}",
+                        if name == "input" {
+                            "zero or one".to_owned()
+                        } else {
+                            arity.to_string()
+                        },
+                        args.len()
+                    ),
+                );
+            }
+
+            if args.iter().any(|arg| arg.get_type() != Type::String) {
+                self.report(position, format!("'{name}' requires String arguments"));
+            }
+
+            return result;
+        }
+
+        if name == "print" {
+            return Type::Unit;
+        }
+
+        if name == "str" {
+            if args.len() != 1 {
+                self.report(position, "str expects one argument");
+            }
+
+            return Type::String;
+        }
+
         let arity = match name {
-            "len" | "pop" | "keys" | "values" | "collect" => 1,
-            "push" | "has" | "remove" => 2,
-            "get" => 3,
+            "len" | "pop" | "keys" | "values" | "collect" | "abs" => 1,
+            "push" | "has" | "remove" | "map" | "filter" | "each" | "sort" | "min" | "max" => 2,
+            "get" | "fold" => 3,
             _ => {
                 self.report(position, format!("Unknown built-in '{name}'"));
+
                 return Type::Unit;
             }
         };
@@ -344,6 +420,7 @@ impl Binder {
                 position,
                 format!("'{name}' expects {arity} arguments, got {}", args.len()),
             );
+
             return Type::Unit;
         }
 
@@ -354,6 +431,77 @@ impl Binder {
         };
 
         match name {
+            "abs" | "min" | "max" => {
+                if args.iter().any(|arg| arg.get_type() != Type::Number) {
+                    self.report(position, format!("{name} requires Number arguments"));
+                }
+
+                Type::Number
+            }
+
+            "map" | "filter" | "fold" | "each" | "sort" => {
+                let Type::List(element) = &typ else {
+                    return invalid(self);
+                };
+                let callback = &args[if name == "fold" { 2 } else { 1 }];
+                let Type::Function(parameters, result) = callback.get_type() else {
+                    self.report(position, "Expected a typed function callback");
+
+                    return Type::Unit;
+                };
+                let expected_parameters = if name == "fold" {
+                    vec![args[1].get_type(), (**element).clone()]
+                } else if name == "sort" {
+                    vec![(**element).clone(), (**element).clone()]
+                } else {
+                    vec![(**element).clone()]
+                };
+
+                if parameters != expected_parameters {
+                    self.report(
+                        position,
+                        "Callback parameter types do not match the collection operation",
+                    );
+                }
+
+                match name {
+                    "map" => Type::List(result),
+                    "fold" => {
+                        if *result != args[1].get_type() {
+                            self.report(position, "fold callback must return the accumulator type");
+                        }
+
+                        args[1].get_type()
+                    }
+
+                    "filter" => {
+                        if *result != Type::Boolean {
+                            self.report(position, "filter callback must return Boolean");
+                        }
+
+                        typ
+                    }
+
+                    "each" => {
+                        if *result != Type::Unit {
+                            self.report(position, "each callback must return Unit");
+                        }
+
+                        Type::Unit
+                    }
+
+                    "sort" => {
+                        if *result != Type::Number {
+                            self.report(position, "sort comparator must return Number");
+                        }
+
+                        typ
+                    }
+
+                    _ => unreachable!(),
+                }
+            }
+
             "len" => {
                 if matches!(
                     typ,
@@ -364,6 +512,7 @@ impl Binder {
                     invalid(self)
                 }
             }
+
             "collect" => {
                 if typ == Type::Range {
                     Type::List(Box::new(Type::Number))
@@ -371,6 +520,7 @@ impl Binder {
                     invalid(self)
                 }
             }
+
             "push" => {
                 if let Type::List(element) = &typ {
                     if args[1].get_type() != **element {
@@ -379,11 +529,13 @@ impl Binder {
                             format!("push expects {element}, got {}", args[1].get_type()),
                         );
                     }
+
                     typ
                 } else {
                     invalid(self)
                 }
             }
+
             "pop" => {
                 if let Type::List(element) = &typ {
                     Type::Record(BTreeMap::from([
@@ -394,6 +546,7 @@ impl Binder {
                     invalid(self)
                 }
             }
+
             "keys" => match &typ {
                 Type::List(_) => Type::List(Box::new(Type::Number)),
                 Type::Map(key, _) => Type::List(key.clone()),
@@ -419,6 +572,7 @@ impl Binder {
 
                     Type::Unit
                 }
+
                 _ => invalid(self),
             },
             "has" => {
@@ -435,6 +589,7 @@ impl Binder {
 
                 Type::Boolean
             }
+
             "get" => {
                 let element = self.access_type(&typ, &args[1], position, true);
 
@@ -450,15 +605,18 @@ impl Binder {
 
                 element
             }
+
             "remove" => {
                 if let Type::Record(fields) = &typ {
                     if let Some(name) = Self::literal_key(&args[1]) {
                         let mut fields = fields.clone();
                         fields.remove(name);
+
                         return Type::Record(fields);
                     }
 
                     self.report(position, "remove(record) requires a literal field name");
+
                     return Type::Unit;
                 }
 
@@ -466,6 +624,7 @@ impl Binder {
 
                 typ
             }
+
             _ => unreachable!(),
         }
     }

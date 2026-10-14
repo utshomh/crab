@@ -17,7 +17,7 @@ var factorial = 1
 for i = 1 to 5 {
     factorial = factorial * i
 }
-print factorial
+print(factorial)
 ```
 
 ## Examples
@@ -47,6 +47,14 @@ cargo run -p crabi -- example/two_counter_machine.crab
 | [frequency_count.crab](example/frequency_count.crab) | Word frequencies with a dictionary |
 | [game_of_life_arrays.crab](example/game_of_life_arrays.crab) | Game of Life using boolean grids |
 | [pathfinding.crab](example/pathfinding.crab) | Breadth-first search and path reconstruction |
+| [functions.crab](example/functions.crab) | First-class functions, recursion, closures, and built-in aliases |
+| [merge_sort.crab](example/merge_sort.crab) | Recursive merge sort |
+| [functional_pipeline.crab](example/functional_pipeline.crab) | Typed callbacks, filtering, aggregation, and sorting records |
+| [closure_accounts.crab](example/closure_accounts.crab) | Record-held functions sharing private mutable state |
+| [game_of_life_functions.crab](example/game_of_life_functions.crab) | Modular Game of Life with callable record fields |
+| [terminal_input.crab](example/terminal_input.crab) | Prompted input and recoverable parsing |
+| [stdin_sum.crab](example/stdin_sum.crab) | Read integers until standard-input EOF |
+| [file_statistics.crab](example/file_statistics.crab) | Read, parse, aggregate, and sort a text file |
 | [two_counter_machine.crab](example/two_counter_machine.crab) | Encoded machine interpreter and Turing-completeness construction |
 
 Run Game of Life with `cargo run -p crabi -- example/game_of_life.crab`.
@@ -60,6 +68,112 @@ Crab can simulate a universal computation model (assuming unlimited memory and
 time). See [Dudenhefner's two-counter machine study](https://doi.org/10.4230/LIPIcs.FSCD.2022.16)
 for the underlying model.
 
+## Functions and callable built-ins
+
+`print` is now a built-in value, so use `print(value)` in place of the old
+`print value` statement. It accepts any number of arguments, separates them with
+spaces, and adds a newline. `print()` writes a blank line and returns `Unit`.
+
+```text
+fun square(n: Number) -> Number { return n * n }
+fun apply(f: fun(Number) -> Number, n: Number) -> Number { return f(n) }
+var operations = [square: square, double: fun(n: Number) -> Number { return n * 2 }]
+print(apply(operations.square, 5))
+var emit = print
+emit(operations['double'](7))
+```
+
+Functions are first-class values: assign them, pass and return them, and store them
+in lists, dictionaries, or records. Function types are `fun(T1, T2) -> R`; record
+type annotations use `[field: Type, ...]`. Parameters require types. The return
+type defaults to `Unit`; every non-Unit function needs an explicit return on every
+branch (the checker conservatively does not assume a loop will run). `return`
+exits nested blocks and loops. A newline immediately after `return` ends a bare
+Unit return; put returned expressions on the same line as the keyword.
+
+Named `fun name(...)` declarations are hoisted within their lexical scope and
+support self/mutual recursion. Anonymous `fun(...)` expressions are evaluated
+where they occur; use a named declaration for self-recursion. Captured variables
+must be visible at the definition and initialized before a call reads them.
+Functions capture lexical variable identities, so later shadowing or redeclaration
+does not change their meaning. Captured mutable state survives the defining call.
+Copies of a function share its closure identity and captured state; copying a
+record containing functions preserves those handles. Record calls do not supply
+an implicit `self`. Each for-loop iteration has its own captured loop binding.
+
+Callees evaluate first, then arguments once from left to right. Built-ins use
+normal name lookup and can be shadowed, aliased, and stored in records. Their
+polymorphic signatures survive aliases; a typed function context specializes a
+built-in, e.g. `var size: fun(List<Number>) -> Number = len`. User-defined generic
+functions are not yet supported. Function equality compares callable identity.
+
+Closure environments use an arena and transactional snapshots. Failed REPL
+submissions roll back captured-state mutations, including callback failures.
+Unreachable environments and recursive closure cycles are collected after
+successful evaluation; ordinary scopes are released as they exit. Already printed
+output remains visible. Runtime errors show function call traces and retain the
+source of functions declared in earlier REPL submissions. Calls are limited to
+128 nested user-function invocations, with a diagnostic when the limit is reached.
+
+| Built-in | Behavior |
+| --- | --- |
+| `print(...values)` | Print space-separated values and a newline; return Unit |
+| `map(list, f)` | Call `fun(T) -> U` once per element; return List<U> |
+| `filter(list, predicate)` | Keep elements for which `fun(T) -> Boolean` returns true |
+| `fold(list, initial, f)` | Accumulate left-to-right with `fun(A, T) -> A` |
+| `each(list, f)` | Call `fun(T) -> Unit` for every element |
+| `sort(list, compare)` | Stable merge sort; `fun(T, T) -> Number` returns negative/zero/positive |
+| `str(value)` | Convert a value to its printed String representation |
+| `abs(n)` | Absolute value of an arbitrary-precision integer |
+| `min(a, b)`, `max(a, b)` | Smaller/larger of two integers |
+
+Higher-order operations evaluate the list and callback once, then iterate a
+snapshot. They leave the input collection unchanged; callbacks may change captured
+state. Empty maps/filters retain their statically known element type. `sort`
+propagates comparator errors and preserves the order of equal elements.
+
+## Input and parsing
+
+```text
+var name = input('Name: ')
+var age = parseNumber(input('Age: '))
+var enabled = parseBoolean(input('Enabled (true/false): '))
+var numbers = map(readLines('example/data/numbers.txt'), parseNumber)
+```
+
+| Built-in | Behavior |
+| --- | --- |
+| `input()` / `input(prompt)` | Read one line from stdin, optionally displaying and flushing a String prompt; return String; EOF is an error |
+| `readLine()` | Read one line; return `[text: String, eof: Boolean]` |
+| `readAll()` | Read remaining stdin through EOF as one String |
+| `readFile(path)` | Read an entire UTF-8 file as String |
+| `readLines(path)` | Read a UTF-8 file as List<String>, excluding line endings |
+| `parseNumber(text)` | Parse a signed arbitrary-precision decimal integer; invalid input errors |
+| `parseBoolean(text)` | Parse exactly `true` or `false`; invalid input errors |
+| `tryParseNumber(text)` | Return `[ok: Boolean, value: Number]`; failure value is 0 |
+| `tryParseBoolean(text)` | Return `[ok: Boolean, value: Boolean]`; failure value is false |
+| `trim(text)` | Remove surrounding Unicode whitespace |
+| `split(text, separator)` | Split by an exact, nonempty String separator; retain empty parts |
+
+All arguments are Strings, and these built-ins can be aliased, stored in records,
+and passed as typed callbacks. Parsers trim surrounding whitespace. Numbers accept
+an optional `+` or `-` followed by ASCII decimal digits; decimals, hexadecimal,
+underscores, and internal whitespace are rejected. Boolean parsing is case-sensitive
+and does not coerce `1`, `0`, or `yes`. Check `.ok` before using a try-parser value;
+a valid false boolean or zero integer still has `ok: true`.
+
+Line reads remove LF or CRLF, preserve other whitespace, and distinguish a blank
+line (`text: '', eof: false`) from EOF (`text: '', eof: true`). File line reads
+preserve blank lines but do not create an extra line for a final newline; an empty
+file yields `[]`. Paths are relative to the interpreter's working directory unless
+absolute. Missing/unreadable files, invalid UTF-8, and parsing failures produce
+runtime diagnostics. In the REPL, finish the code submission with a blank line,
+then provide the data requested by its input calls. Consumed input and displayed
+prompts are external effects and remain consumed/displayed if a submission fails.
+
+Try `cargo run -p crabi -- example/terminal_input.crab` or
+`cargo run -p crabi -- example/file_statistics.crab` from the repository root.
+
 ## Collections
 
 ```text
@@ -71,7 +185,7 @@ var person = [name: 'Utsho', age: 25]
 person.age = 26
 var counts: Map<String, Number> = [:]
 counts['crab'] = get(counts, 'crab', 0) + 1
-for i in 1..10 { print i }
+for i in 1..10 { print(i) }
 ```
 
 Lists are homogeneous and zero-indexed. Records have fixed field names, with a
@@ -81,7 +195,7 @@ keys are either all integers or all strings, and values share one type. Dot acce
 also works on string-keyed dictionaries. Keys are never coerced between types.
 
 Optional annotations use `Number`, `Boolean`, `String`, `Range`, `List<T>`, and
-`Map<K, V>`. A standalone empty list `[]` or dictionary `[:]` needs an annotation;
+`Map<K, V>`, `Unit`, function signatures, and structural record types. A standalone empty list `[]` or dictionary `[:]` needs an annotation;
 assignment to an existing variable, nested literals, and built-in value arguments
 can supply the expected type.
 `[value; count]` evaluates both expressions once and repeats the value. Negative

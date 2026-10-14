@@ -155,6 +155,7 @@ impl BoundBinaryOperator {
                 Type::Boolean,
             ));
         }
+
         let operators = [
             BoundBinaryOperator::new(
                 TokenKind::Plus,
@@ -277,6 +278,8 @@ pub enum BoundExpression {
     Unary(BoundUnaryExpression),
     Binary(BoundBinaryExpression),
     Collection(BoundCollectionExpression),
+    Function(std::rc::Rc<BoundFunction>),
+    Specialize(Box<BoundExpression>, Type, Position),
 }
 
 impl BoundExpression {
@@ -287,6 +290,8 @@ impl BoundExpression {
             BoundExpression::Unary(expression) => expression.get_type(),
             BoundExpression::Binary(expression) => expression.get_type(),
             BoundExpression::Collection(expression) => expression.typ.clone(),
+            BoundExpression::Function(function) => function.signature.clone(),
+            BoundExpression::Specialize(_, typ, _) => typ.clone(),
         }
     }
 
@@ -297,6 +302,8 @@ impl BoundExpression {
             BoundExpression::Unary(expression) => expression.get_position(),
             BoundExpression::Binary(expression) => expression.get_position(),
             BoundExpression::Collection(expression) => expression.position.clone(),
+            BoundExpression::Function(function) => function.position.clone(),
+            BoundExpression::Specialize(_, _, position) => position.clone(),
         }
     }
 }
@@ -410,7 +417,8 @@ impl BoundBinaryExpression {
 #[derive(Debug, Clone)]
 pub enum BoundStatement {
     Expression(BoundExpressionStatement),
-    Print(BoundPrintStatement),
+    Function(String, std::rc::Rc<BoundFunction>),
+    Return(Option<BoundExpression>, Position),
     Var(BoundVarStatement),
     Block(BoundBlockStatement),
     If(BoundIfStatement),
@@ -425,17 +433,6 @@ pub struct BoundExpressionStatement {
 }
 
 impl BoundExpressionStatement {
-    pub fn new(expression: BoundExpression) -> Self {
-        Self { expression }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BoundPrintStatement {
-    pub expression: BoundExpression,
-}
-
-impl BoundPrintStatement {
     pub fn new(expression: BoundExpression) -> Self {
         Self { expression }
     }
@@ -542,7 +539,7 @@ pub enum BoundCollectionKind {
     Map(Vec<(BoundExpression, BoundExpression)>),
     Range(Box<BoundExpression>, Box<BoundExpression>),
     Index(Box<BoundExpression>, Box<BoundExpression>),
-    Call(String, Vec<BoundExpression>),
+    Call(Box<BoundExpression>, Vec<BoundExpression>),
     Assign {
         name: String,
         indices: Vec<BoundExpression>,
@@ -555,4 +552,15 @@ pub struct BoundEachStatement {
     pub name: String,
     pub iterable: BoundExpression,
     pub body: Box<BoundStatement>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BoundFunction {
+    pub name: String,
+    pub parameters: Vec<String>,
+    pub signature: Type,
+    pub body: BoundStatement,
+    pub position: Position,
+    pub source: std::rc::Rc<str>,
+    pub captures: Vec<String>,
 }

@@ -17,13 +17,16 @@ use super::{
     bound_tree::{
         BoundBinaryExpression, BoundBinaryOperator, BoundBlockStatement, BoundExpression,
         BoundExpressionStatement, BoundForStatement, BoundIfStatement, BoundLiteralExpression,
-        BoundPrintStatement, BoundStatement, BoundUnaryExpression, BoundUnaryOperator,
-        BoundVarStatement, BoundVariableExpression, BoundWhileStatement,
+        BoundStatement, BoundUnaryExpression, BoundUnaryOperator, BoundVarStatement,
+        BoundVariableExpression, BoundWhileStatement,
     },
 };
 
 pub(crate) struct Binder {
     pub(super) bindings: Rc<RefCell<Bindings>>,
+    pub(super) result_type: Option<Type>,
+    pub(super) function_symbols: std::collections::HashMap<usize, String>,
+    pub(super) source: Rc<str>,
     pub(crate) diagnostic_bag: Rc<RefCell<DiagnosticBag>>,
 }
 
@@ -31,18 +34,25 @@ impl Binder {
     pub(crate) fn new(
         bindings: Rc<RefCell<Bindings>>,
         diagnostic_bag: Rc<RefCell<DiagnosticBag>>,
+        source: Rc<str>,
     ) -> Self {
         Self {
             bindings,
             diagnostic_bag,
+            result_type: None,
+            function_symbols: std::collections::HashMap::new(),
+            source,
         }
     }
 
     pub(crate) fn bind(&mut self, program: Vec<Statement>) -> Vec<BoundStatement> {
+        self.predeclare_functions(&program);
         let mut bound_statements = vec![];
+
         for statement in program {
             bound_statements.push(self.bind_statement(statement));
         }
+
         bound_statements
     }
 
@@ -51,9 +61,27 @@ impl Binder {
             Statement::Expression(statement) => BoundStatement::Expression(
                 BoundExpressionStatement::new(self.bind_expression(statement.expression)),
             ),
-            Statement::Print(statement) => BoundStatement::Print(BoundPrintStatement::new(
-                self.bind_expression(statement.expression),
-            )),
+            Statement::Function(name, function) => self.bind_function_declaration(name, function),
+            Statement::Return(value, position) => {
+                let expected = self.result_type.clone();
+
+                if expected.is_none() {
+                    self.diagnostic_bag
+                        .borrow_mut()
+                        .report(position.clone(), "return is only valid inside a function");
+                }
+
+                let value = value.map(|value| self.bind_with_type(value, expected.clone()));
+
+                if value.is_none() && expected.is_some_and(|typ| typ != Type::Unit) {
+                    self.diagnostic_bag
+                        .borrow_mut()
+                        .report(position.clone(), "A value is required for this return");
+                }
+
+                BoundStatement::Return(value, position)
+            }
+
             Statement::Var(statement) => self.bind_var_statement(statement),
             Statement::Block(statement) => self.bind_block_statement(statement),
             Statement::If(statement) => self.bind_if_statement(statement),
@@ -67,29 +95,25 @@ impl Binder {
         if let Some(annotation) = &statement.annotation {
             self.validate_type(annotation, &statement.identifier.position);
         }
+
         let bound_expression = self.bind_with_type(statement.expression, statement.annotation);
-        self.bindings.borrow_mut().set(
-            statement.identifier.lexeme.clone(),
-            bound_expression.get_type(),
-        );
-        BoundStatement::Var(BoundVarStatement::new(
-            statement.identifier.lexeme,
-            bound_expression,
-        ))
+        let symbol = self
+            .bindings
+            .borrow_mut()
+            .set(statement.identifier.lexeme, bound_expression.get_type());
+        BoundStatement::Var(BoundVarStatement::new(symbol, bound_expression))
     }
 
     fn bind_block_statement(&mut self, statement: BlockStatement) -> BoundStatement {
-        let mut statements = vec![];
         self.bindings = Rc::new(RefCell::new(Bindings::extend(Rc::clone(&self.bindings))));
-        for statement in statement.statements {
-            statements.push(self.bind_statement(statement));
-        }
+        let statements = self.bind(statement.statements);
         let old_bindings = self.bindings.borrow().outer.clone().unwrap();
         self.bindings = old_bindings;
         BoundStatement::Block(BoundBlockStatement::new(statements))
     }
 
     // Every control-flow body has its own lexical scope, including unbraced bodies.
+
     pub(super) fn bind_scoped_statement(&mut self, statement: Statement) -> BoundStatement {
         match statement {
             Statement::Block(block) => self.bind_block_statement(block),
@@ -101,6 +125,7 @@ impl Binder {
 
     fn bind_if_statement(&mut self, statement: IfStatement) -> BoundStatement {
         let condition = self.bind_expression(statement.condition.clone());
+
         if condition.get_type() == Type::Boolean {
             let consequence = self.bind_scoped_statement(*statement.consequence);
             let else_clause =
@@ -120,6 +145,7 @@ impl Binder {
 
     fn bind_while_statement(&mut self, statement: WhileStatement) -> BoundStatement {
         let condition = self.bind_expression(statement.condition.clone());
+
         if condition.get_type() == Type::Boolean {
             let body = self.bind_scoped_statement(*statement.body);
             BoundStatement::While(BoundWhileStatement::new(condition, body))
@@ -138,22 +164,25 @@ impl Binder {
     fn bind_for_statement(&mut self, statement: ForStatement) -> BoundStatement {
         let lower_bound = self.bind_expression(statement.lower_bound);
         let upper_bound = self.bind_expression(statement.upper_bound);
+
         match (lower_bound.get_type(), upper_bound.get_type()) {
             (Type::Number, Type::Number) => {
                 let outer = Rc::clone(&self.bindings);
                 self.bindings = Rc::new(RefCell::new(Bindings::extend(Rc::clone(&outer))));
-                self.bindings
+                let symbol = self
+                    .bindings
                     .borrow_mut()
                     .set(statement.identifier.lexeme.clone(), Type::Number);
                 let body = self.bind_scoped_statement(*statement.body);
                 self.bindings = outer;
                 BoundStatement::For(BoundForStatement::new(
-                    statement.identifier.lexeme,
+                    symbol,
                     lower_bound,
                     upper_bound,
                     body,
                 ))
             }
+
             (_, _) => {
                 for bound in [&lower_bound, &upper_bound] {
                     if bound.get_type() != Type::Number {
@@ -164,6 +193,7 @@ impl Binder {
                         );
                     }
                 }
+
                 BoundStatement::Expression(BoundExpressionStatement::new(BoundExpression::Literal(
                     BoundLiteralExpression::new(Object::Unit, statement.identifier.position),
                 )))
@@ -180,17 +210,24 @@ impl Binder {
         expression: Expression,
         expected: Option<Type>,
     ) -> BoundExpression {
-        let bound = match expression {
+        let mut bound = match expression {
             Expression::Literal(expression) => self.bind_literal_expression(expression),
             Expression::Name(expression) => self.bind_name_expression(expression),
             Expression::Parenthesized(expression) => self.bind_parenthesized_expression(expression),
             Expression::Unary(expression) => self.bind_unary_expression(expression),
             Expression::Binary(expression) => self.bind_binary_expression(expression),
+            Expression::Function(function) => {
+                BoundExpression::Function(self.bind_function("<anonymous>".into(), function))
+            }
+
             Expression::Collection(expression) => {
                 self.bind_collection(expression, expected.clone())
             }
         };
+
         if let Some(expected) = expected {
+            bound = self.specialize(bound, &expected);
+
             if bound.get_type() != expected {
                 self.diagnostic_bag.borrow_mut().invalid_expression_type(
                     bound.get_position(),
@@ -199,6 +236,7 @@ impl Binder {
                 );
             }
         }
+
         bound
     }
 
@@ -210,9 +248,13 @@ impl Binder {
     }
 
     fn bind_name_expression(&mut self, expression: NameExpression) -> BoundExpression {
-        if let Some(typ) = self.bindings.borrow().get(&expression.identifier.lexeme) {
+        if let Some((typ, symbol)) = self
+            .bindings
+            .borrow()
+            .resolve(&expression.identifier.lexeme)
+        {
             BoundExpression::Variable(BoundVariableExpression::new(
-                expression.identifier.lexeme.clone(),
+                symbol,
                 typ,
                 expression.get_position(),
             ))
@@ -237,6 +279,7 @@ impl Binder {
 
     fn bind_unary_expression(&mut self, expression: UnaryExpression) -> BoundExpression {
         let right = self.bind_expression(*expression.right.clone());
+
         if let Some(operator) =
             BoundUnaryOperator::bind(expression.operator.kind.clone(), right.get_type())
         {
@@ -261,6 +304,7 @@ impl Binder {
     fn bind_binary_expression(&mut self, expression: BinaryExpression) -> BoundExpression {
         let left = self.bind_expression(*expression.left.clone());
         let right = self.bind_expression(*expression.right.clone());
+
         if let Some(operator) = BoundBinaryOperator::bind(
             expression.operator.kind.clone(),
             left.get_type(),

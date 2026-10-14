@@ -1,6 +1,7 @@
 // Game of Life using boolean arrays. The integer version is game_of_life.crab.
 // Run: cargo run -p crabi -- example/game_of_life_arrays.crab
 // Edit the dimensions, generation count, and seed. Boundaries do not wrap.
+
 var width = 10
 var height = 10
 var generations = 4
@@ -12,27 +13,42 @@ board[3][2] = true
 board[3][3] = true
 
 for generation in 0..generations {
-    print "Generation:"
-    print generation
+    print("Generation:")
+    print(generation)
+
     var next = [[false; width]; height]
+
     for y in 0..height - 1 {
         var row = ""
+
         for x in 0..width - 1 {
-            if board[y][x] { row = row + "#" } else { row = row + "." }
+            if board[y][x] {
+                row = row + "#"
+            } else {
+                row = row + "."
+            }
+
             var neighbors = 0
+
             for dy in -1..1 {
                 for dx in -1..1 {
                     var nx = x + dx
                     var ny = y + dy
+
                     if (dx != 0 || dy != 0) && nx >= 0 && nx < width && ny >= 0 && ny < height {
-                        if board[ny][nx] { neighbors = neighbors + 1 }
+                        if board[ny][nx] {
+                            neighbors = neighbors + 1
+                        }
                     }
                 }
             }
+
             next[y][x] = neighbors == 3 || (board[y][x] && neighbors == 2)
         }
-        print row
+
+        print(row)
     }
-    print ""
+
+    print("")
     board = next
 }

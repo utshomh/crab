@@ -1,0 +1,67 @@
+// Modular Game of Life with callable record fields.
+// Run: cargo run -p crabi -- example/game_of_life_functions.crab
+
+fun countNeighbors(board: List<List<Boolean>>, x: Number, y: Number) -> Number {
+    var neighbors = 0
+
+    for dy in -1..1 {
+        for dx in -1..1 {
+            var nx = x + dx
+            var ny = y + dy
+
+            if (dx != 0 || dy != 0) && nx >= 0 && nx < len(board[0]) && ny >= 0 && ny < len(board) {
+                if board[ny][nx] {
+                    neighbors = neighbors + 1
+                }
+            }
+        }
+    }
+
+    return neighbors
+}
+
+fun nextGeneration(board: List<List<Boolean>>) -> List<List<Boolean>> {
+    var next = [[false; len(board[0])]; len(board)]
+
+    for y in 0..len(board) - 1 {
+        for x in 0..len(board[0]) - 1 {
+            var neighbors = countNeighbors(board, x, y)
+            next[y][x] = neighbors == 3 || (board[y][x] && neighbors == 2)
+        }
+    }
+
+    return next
+}
+
+fun render(board: List<List<Boolean>>) {
+    for row in board {
+        var text = ''
+
+        for alive in row {
+            if alive {
+                text = text + '#'
+            } else {
+                text = text + '.'
+            }
+        }
+
+        print(text)
+    }
+
+    print()
+}
+
+var life = [step: nextGeneration, show: render]
+var board = [[false; 10]; 10]
+board[1][2] = true
+board[2][3] = true
+board[3][1] = true
+board[3][2] = true
+board[3][3] = true
+
+for generation in 0..4 {
+    print('Generation:')
+    print(generation)
+    life.show(board)
+    board = life.step(board)
+}

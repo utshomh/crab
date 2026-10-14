@@ -1,32 +1,44 @@
 // Typed collections and built-ins. Run: cargo run -p crabi -- example/arrays.crab
+
 var numbers = collect(1..5)
 numbers[0] = 10
-print numbers
-print [0; 3]
+
+print(numbers)
+print([0; 3])
+
 var matrix = [[false; 2]; 2]
 matrix[0][1] = true
-print matrix
+
+print(matrix)
 
 // Empty values need a type source; repetition can also provide one.
+
 var empty: List<Number> = []
 empty = push(empty, 42)
-print empty
+
+print(empty)
+
 var result = pop(empty)
-print result.items
-print result.value
+
+print(result.items)
+print(result.value)
 
 // Fixed record fields each have their own type.
+
 var person = [name: 'Utsho', age: 25, active: true]
 person.age = 26
-print person.name
-print person['age']
+
+print(person.name)
+print(person['age'])
 
 // Dictionaries have homogeneous keys and values, and preserve insertion order.
+
 var scores: Map<String, Number> = [:]
 scores['Alice'] = 90
 scores.Bob = 85
-print keys(scores)
-print values(scores)
-print has(scores, 'Alice')
-print get(scores, 'Unknown', 0)
-print remove(scores, 'Bob')
+
+print(keys(scores))
+print(values(scores))
+print(has(scores, 'Alice'))
+print(get(scores, 'Unknown', 0))
+print(remove(scores, 'Bob'))

@@ -42,16 +42,20 @@ var slot = base * base * base
 
 while running {
     // Fetch the instruction at pc. Integer arithmetic replaces array indexing.
+
     var offset = 1
     var address = 0
+
     while address < pc {
         offset = offset * slot
         address = address + 1
     }
+
     var shifted = program / offset
     var instruction = shifted - (shifted / slot) * slot
 
     // Decode the three base digits without needing a remainder operator.
+
     var opcode = instruction - (instruction / base) * base
     var destinations = instruction / base
     var next = destinations - (destinations / base) * base
@@ -80,12 +84,12 @@ while running {
             pc = next
         }
     } else {
-        print "Invalid machine opcode"
+        print("Invalid machine opcode")
         running = false
     }
 }
 
-print "Counter 1:"
-print r1 // 0
-print "Counter 2:"
-print r2 // 7
+print("Counter 1:")
+print(r1) // 0
+print("Counter 2:")
+print(r2) // 7

@@ -1,13 +1,18 @@
 // Insertion sort. Run: cargo run -p crabi -- example/insertion_sort.crab
 // Works with negative values, duplicates, and arbitrary-precision integers.
+
 var numbers = [42, -3, 7, 7, 0, 1000000000000000000000000, 2]
+
 for i in 1..len(numbers) - 1 {
     var value = numbers[i]
     var j = i - 1
+
     while j >= 0 && numbers[j] > value {
         numbers[j + 1] = numbers[j]
         j = j - 1
     }
+
     numbers[j + 1] = value
 }
-print numbers // [-3, 0, 2, 7, 7, 42, 1000000000000000000000000]
+
+print(numbers) // [-3, 0, 2, 7, 7, 42, 1000000000000000000000000]

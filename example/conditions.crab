@@ -2,11 +2,13 @@
 // Run: cargo run -p crabi -- example/conditions.crab
 
 var score = 75
+
 if score >= 50 && score <= 100 {
-    print "Passed"
+    print("Passed")
 } else if score < 0 || score > 100 {
-    print "Invalid score"
+    print("Invalid score")
 } else {
-    print "Try again"
+    print("Try again")
 }
-print false && (1 / 0 == 0) // false; the division is never evaluated
+
+print(false && (1 / 0 == 0)) // false; the division is never evaluated

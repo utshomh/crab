@@ -3,9 +3,11 @@
 
 var a = 1071
 var b = 462
+
 while b != 0 {
     var remainder = a - (a / b) * b
     a = b
     b = remainder
 }
-print a // 21
+
+print(a) // 21

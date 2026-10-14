@@ -1,5 +1,6 @@
 // Breadth-first search with path reconstruction: 0 is open, 1 is a wall.
 // Run: cargo run -p crabi -- example/pathfinding.crab
+
 var maze = [
     [0, 0, 0, 0, 0, 0],
     [1, 1, 0, 1, 1, 0],
@@ -8,6 +9,7 @@ var maze = [
     [0, 0, 0, 0, 0, 0],
     [0, 1, 1, 0, 1, 0],
 ]
+
 var height = len(maze)
 var width = len(maze[0])
 var start = [x: 0, y: 0]
@@ -19,12 +21,15 @@ var queue = [start]
 var head = 0
 // A moving head lets the queue retain its elements without shifting them.
 distance[start.y][start.x] = 0
+
 while head < len(queue) && distance[goal.y][goal.x] == -1 {
     var current = queue[head]
     head = head + 1
+
     for direction in directions {
         var nx = current.x + direction.x
         var ny = current.y + direction.y
+
         if nx >= 0 && nx < width && ny >= 0 && ny < height && maze[ny][nx] == 0 && distance[ny][nx] == -1 {
             distance[ny][nx] = distance[current.y][current.x] + 1
             previous[ny][nx] = current
@@ -32,19 +37,24 @@ while head < len(queue) && distance[goal.y][goal.x] == -1 {
         }
     }
 }
+
 if distance[goal.y][goal.x] == -1 {
-    print "No path found"
+    print("No path found")
 } else {
-    print "Shortest path length:"
-    print distance[goal.y][goal.x] // 10 steps
+    print("Shortest path length:")
+    print(distance[goal.y][goal.x]) // 10 steps
+
     var path = [goal]
     var current = goal
+
     while current != start {
         current = previous[current.y][current.x]
         path = push(path, current)
     }
-    print "Path:"
+
+    print("Path:")
+
     for i in 0..len(path) - 1 {
-        print path[len(path) - 1 - i]
+        print(path[len(path) - 1 - i])
     }
 }

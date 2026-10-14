@@ -1,0 +1,28 @@
+// Terminal input and recoverable parsing.
+// Run: cargo run -p crabi -- example/terminal_input.crab
+
+fun askNumber(prompt: String) -> Number {
+    var result = tryParseNumber(input(prompt))
+
+    while !result.ok {
+        print('Enter a signed decimal integer.')
+        result = tryParseNumber(input(prompt))
+    }
+
+    return result.value
+}
+
+var name = input('Name: ')
+var age = askNumber('Age: ')
+var verbose = tryParseBoolean(input('Verbose (true/false): '))
+
+while !verbose.ok {
+    print('Enter true or false.')
+    verbose = tryParseBoolean(input('Verbose (true/false): '))
+}
+
+print('Hello,', name)
+
+if verbose.value {
+    print([name: name, age: age])
+}

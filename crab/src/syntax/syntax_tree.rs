@@ -13,6 +13,7 @@ pub enum Expression {
     Unary(UnaryExpression),
     Binary(BinaryExpression),
     Collection(CollectionExpression),
+    Function(FunctionExpression),
 }
 
 impl Expression {
@@ -24,6 +25,7 @@ impl Expression {
             Expression::Unary(expression) => expression.get_position(),
             Expression::Binary(expression) => expression.get_position(),
             Expression::Collection(expression) => expression.position.clone(),
+            Expression::Function(expression) => expression.position.clone(),
         }
     }
 }
@@ -124,9 +126,24 @@ impl BinaryExpression {
 }
 
 #[derive(Debug, Clone)]
+pub struct CollectionExpression {
+    pub(crate) kind: CollectionKind,
+    pub(crate) position: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionExpression {
+    pub(crate) parameters: Vec<(Token, Type)>,
+    pub(crate) result: Type,
+    pub(crate) body: Box<Statement>,
+    pub(crate) position: Position,
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
     Expression(ExpressionStatement),
-    Print(PrintStatement),
+    Function(String, FunctionExpression),
+    Return(Option<Expression>, Position),
     Var(VarStatement),
     Block(BlockStatement),
     If(IfStatement),
@@ -141,17 +158,6 @@ pub struct ExpressionStatement {
 }
 
 impl ExpressionStatement {
-    pub(super) fn new(expression: Expression) -> Self {
-        Self { expression }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PrintStatement {
-    pub(crate) expression: Expression,
-}
-
-impl PrintStatement {
     pub(super) fn new(expression: Expression) -> Self {
         Self { expression }
     }
@@ -246,12 +252,6 @@ impl ForStatement {
 }
 
 #[derive(Debug, Clone)]
-pub struct CollectionExpression {
-    pub(crate) kind: CollectionKind,
-    pub(crate) position: Position,
-}
-
-#[derive(Debug, Clone)]
 pub(crate) enum CollectionKind {
     List(Vec<Expression>),
     Repeat(Box<Expression>, Box<Expression>),
@@ -259,7 +259,7 @@ pub(crate) enum CollectionKind {
     Map(Vec<(Expression, Expression)>),
     Range(Box<Expression>, Box<Expression>),
     Index(Box<Expression>, Box<Expression>),
-    Call(String, Vec<Expression>),
+    Call(Box<Expression>, Vec<Expression>),
     Assign(Box<Expression>, Box<Expression>),
 }
 

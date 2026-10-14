@@ -1,0 +1,19 @@
+// Read a UTF-8 file, skip blank lines, and parse arbitrary-precision integers.
+// Run from the repository root: cargo run -p crabi -- example/file_statistics.crab
+// Change path to analyze another file of decimal integers, one per line.
+
+var path = 'example/data/numbers.txt'
+var lines = filter(readLines(path), fun(line: String) -> Boolean {
+    return len(trim(line)) > 0
+})
+
+var numbers = map(lines, parseNumber)
+var total = fold(numbers, 0, fun(total: Number, value: Number) -> Number {
+    return total + value
+})
+
+print('Count:', len(numbers))
+print('Total:', total)
+print('Sorted:', sort(numbers, fun(a: Number, b: Number) -> Number {
+    return a - b
+}))

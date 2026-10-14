@@ -1,4 +1,4 @@
-use super::evaluator::{EvaluationResult, Evaluator};
+use super::evaluator::{EvaluationResult, Evaluator, Signal};
 use crab::{
     binding::bound_tree::{
         BoundCollectionExpression, BoundCollectionKind as Kind, BoundEachStatement,
@@ -10,10 +10,10 @@ use crab::{
 };
 use std::rc::Rc;
 
-type RuntimeResult<T> = Result<T, Diagnostic>;
+type RuntimeResult<T> = Result<T, Signal>;
 
-fn error(position: &Position, message: impl Into<String>) -> Diagnostic {
-    Diagnostic::new(position.clone(), message.into())
+fn error(position: &Position, message: impl Into<String>) -> Signal {
+    Signal::Error(Diagnostic::new(position.clone(), message.into()))
 }
 
 fn size(number: &Number, position: &Position) -> RuntimeResult<usize> {
@@ -54,8 +54,10 @@ fn lookup<'a>(
         (Object::Map(_, _, data), key) => {
             let key =
                 Key::from_object(key).ok_or_else(|| error(position, "Invalid dictionary key"))?;
+
             Ok(data.get(&key))
         }
+
         (Object::Record(fields), Object::String(name)) => Ok(fields
             .iter()
             .find(|(key, _)| key == name)
@@ -83,31 +85,40 @@ fn write_path(
 ) -> RuntimeResult<()> {
     let Some((index, remaining)) = indices.split_first() else {
         *collection = value;
+
         return Ok(());
     };
+
     match collection {
         Object::List(_, values) => {
             let Object::Number(index) = index else {
                 return Err(error(position, "List index must be Number"));
             };
             let index = size(index, position)?;
+
             if index >= values.len() {
                 return Err(error(position, "List index out of bounds"));
             }
+
             write_path(&mut Rc::make_mut(values)[index], remaining, value, position)
         }
+
         Object::Map(_, _, data) => {
             let key =
                 Key::from_object(index).ok_or_else(|| error(position, "Invalid dictionary key"))?;
+
             if remaining.is_empty() {
                 let data = Rc::make_mut(data);
+
                 if !data.indices.contains_key(&key) {
                     reserve(&mut data.entries, 1, position)?;
                     data.indices
                         .try_reserve(1)
                         .map_err(|_| error(position, "Dictionary allocation failed"))?;
                 }
+
                 data.insert(key, value);
+
                 Ok(())
             } else {
                 let index = *data
@@ -122,6 +133,7 @@ fn write_path(
                 )
             }
         }
+
         Object::Record(fields) => {
             let Object::String(name) = index else {
                 return Err(error(position, "Record key must be String"));
@@ -137,6 +149,7 @@ fn write_path(
                 position,
             )
         }
+
         _ => Err(error(position, "Cannot mutate a scalar through an index")),
     }
 }
@@ -147,11 +160,13 @@ impl Evaluator {
 
         self.with_scope(|evaluator| {
             let mut visit = |value| {
-                evaluator
-                    .bindings
-                    .borrow_mut()
-                    .set(statement.name.clone(), value);
-                evaluator.evaluate_statement(&statement.body)
+                evaluator.with_scope(|iteration| {
+                    iteration
+                        .bindings
+                        .borrow_mut()
+                        .set(statement.name.clone(), value);
+                    iteration.evaluate_statement(&statement.body)
+                })
             };
 
             match iterable {
@@ -161,16 +176,19 @@ impl Evaluator {
                         start += 1u8;
                     }
                 }
+
                 Object::List(_, values) => {
                     for value in values.iter() {
                         visit(value.clone())?;
                     }
                 }
+
                 Object::Map(_, _, data) => {
                     for (_, value) in &data.entries {
                         visit(value.clone())?;
                     }
                 }
+
                 _ => {
                     return Err(error(
                         &statement.iterable.get_position(),
@@ -178,6 +196,7 @@ impl Evaluator {
                     ))
                 }
             }
+
             Ok(Object::Unit)
         })
     }
@@ -195,11 +214,14 @@ impl Evaluator {
                 };
                 let mut values = Vec::new();
                 reserve(&mut values, elements.len(), position)?;
+
                 for element in elements {
                     values.push(self.evaluate_expression(element)?);
                 }
+
                 Ok(Object::List((**element_type).clone(), Rc::new(values)))
             }
+
             Kind::Repeat(value, count) => {
                 let value = self.evaluate_expression(value)?;
                 let Object::Number(count) = self.evaluate_expression(count)? else {
@@ -209,16 +231,21 @@ impl Evaluator {
                 let mut values = Vec::new();
                 reserve(&mut values, count, position)?;
                 values.resize(count, value.clone());
+
                 Ok(Object::List(value.get_type(), Rc::new(values)))
             }
+
             Kind::Record(fields) => {
                 let mut values = Vec::new();
                 reserve(&mut values, fields.len(), position)?;
+
                 for (name, value) in fields {
                     values.push((name.clone(), self.evaluate_expression(value)?));
                 }
+
                 Ok(Object::Record(Rc::new(values)))
             }
+
             Kind::Map(entries) => {
                 let Type::Map(key_type, value_type) = &expression.typ else {
                     return Err(error(position, "Invalid dictionary type"));
@@ -228,6 +255,7 @@ impl Evaluator {
                 data.indices
                     .try_reserve(entries.len())
                     .map_err(|_| error(position, "Dictionary allocation failed"))?;
+
                 for (key, value) in entries {
                     let key = self.evaluate_expression(key)?;
                     let key = Key::from_object(&key)
@@ -235,12 +263,14 @@ impl Evaluator {
                     let value = self.evaluate_expression(value)?;
                     data.insert(key, value);
                 }
+
                 Ok(Object::Map(
                     (**key_type).clone(),
                     (**value_type).clone(),
                     Rc::new(data),
                 ))
             }
+
             Kind::Range(start, end) => {
                 let Object::Number(start) = self.evaluate_expression(start)? else {
                     return Err(error(position, "Range start must be Number"));
@@ -248,13 +278,16 @@ impl Evaluator {
                 let Object::Number(end) = self.evaluate_expression(end)? else {
                     return Err(error(position, "Range end must be Number"));
                 };
+
                 Ok(Object::Range(start, end))
             }
+
             Kind::Index(target, index) => {
                 let target = self.evaluate_expression(target)?;
                 let index = self.evaluate_expression(index)?;
                 read(&target, &index, position)
             }
+
             Kind::Assign {
                 name,
                 indices,
@@ -263,9 +296,11 @@ impl Evaluator {
                 // Indices are evaluated once, left-to-right, followed by the RHS.
                 // The write uses the root variable's value after these evaluations.
                 let mut path = Vec::new();
+
                 for index in indices {
                     path.push(self.evaluate_expression(index)?);
                 }
+
                 let value = self.evaluate_expression(value)?;
                 self.bindings
                     .borrow_mut()
@@ -273,20 +308,25 @@ impl Evaluator {
                         write_path(root, &path, value.clone(), position)
                     })
                     .ok_or_else(|| error(position, "Assignment root is not initialized"))??;
+
                 Ok(value)
             }
-            Kind::Call(name, expressions) => {
+
+            Kind::Call(callee, expressions) => {
+                let callee = self.evaluate_expression(callee)?;
                 let mut args = Vec::new();
+
                 for expression in expressions {
                     args.push(self.evaluate_expression(expression)?);
                 }
-                builtin(name, args, position)
+
+                self.invoke(callee, args, position)
             }
         }
     }
 }
 
-fn builtin(name: &str, args: Vec<Object>, position: &Position) -> EvaluationResult {
+pub(super) fn builtin(name: &str, args: Vec<Object>, position: &Position) -> EvaluationResult {
     let first = &args[0]; // The binder verifies arity before execution.
 
     match name {
@@ -304,8 +344,10 @@ fn builtin(name: &str, args: Vec<Object>, position: &Position) -> EvaluationResu
                     ))
                 }
             };
+
             Ok(Object::Number(count))
         }
+
         "collect" => {
             let Object::Range(start, end) = first else {
                 return Err(error(position, "collect requires a range"));
@@ -314,12 +356,15 @@ fn builtin(name: &str, args: Vec<Object>, position: &Position) -> EvaluationResu
             let mut values = Vec::new();
             reserve(&mut values, count, position)?;
             let mut value = start.clone();
+
             for _ in 0..count {
                 values.push(Object::Number(value.clone()));
                 value += 1u8;
             }
+
             Ok(Object::List(Type::Number, Rc::new(values)))
         }
+
         "push" => {
             let Object::List(typ, values) = first else {
                 return Err(error(position, "push requires a list"));
@@ -328,22 +373,28 @@ fn builtin(name: &str, args: Vec<Object>, position: &Position) -> EvaluationResu
             let data = Rc::make_mut(&mut values);
             reserve(data, 1, position)?;
             data.push(args[1].clone());
+
             Ok(Object::List(typ.clone(), values))
         }
+
         "pop" => {
             let Object::List(typ, values) = first else {
                 return Err(error(position, "pop requires a list"));
             };
+
             if values.is_empty() {
                 return Err(error(position, "Cannot pop an empty list"));
             }
+
             let mut values = Rc::clone(values);
             let value = Rc::make_mut(&mut values).pop().expect("nonempty list");
+
             Ok(Object::Record(Rc::new(vec![
                 ("items".into(), Object::List(typ.clone(), values)),
                 ("value".into(), value),
             ])))
         }
+
         "has" => Ok(Object::Boolean(
             lookup(first, &args[1], position)?.is_some(),
         )),
@@ -355,6 +406,7 @@ fn builtin(name: &str, args: Vec<Object>, position: &Position) -> EvaluationResu
                 Object::List(typ, values) if name == "values" => {
                     return Ok(Object::List(typ.clone(), Rc::clone(values)))
                 }
+
                 Object::List(_, values) => (
                     Type::Number,
                     (0..values.len())
@@ -380,6 +432,7 @@ fn builtin(name: &str, args: Vec<Object>, position: &Position) -> EvaluationResu
                         )
                     }
                 }
+
                 Object::Record(fields) => {
                     if name == "keys" {
                         (
@@ -398,38 +451,49 @@ fn builtin(name: &str, args: Vec<Object>, position: &Position) -> EvaluationResu
                         )
                     }
                 }
+
                 _ => return Err(error(position, "Expected a collection")),
             };
+
             Ok(Object::List(typ, Rc::new(values)))
         }
+
         "remove" => {
             let mut value = first.clone();
+
             match &mut value {
                 Object::List(_, values) => {
                     let Object::Number(index) = &args[1] else {
                         return Err(error(position, "List index must be Number"));
                     };
                     let index = size(index, position)?;
+
                     if index >= values.len() {
                         return Err(error(position, "List index out of bounds"));
                     }
+
                     Rc::make_mut(values).remove(index);
                 }
+
                 Object::Map(_, _, data) => {
                     let key = Key::from_object(&args[1])
                         .ok_or_else(|| error(position, "Invalid dictionary key"))?;
                     Rc::make_mut(data).remove(&key);
                 }
+
                 Object::Record(fields) => {
                     let Object::String(name) = &args[1] else {
                         return Err(error(position, "Record key must be String"));
                     };
                     Rc::make_mut(fields).retain(|(key, _)| key != name);
                 }
+
                 _ => return Err(error(position, "Expected a collection")),
             }
+
             Ok(value)
         }
+
         _ => Err(error(position, "Unknown built-in")),
     }
 }

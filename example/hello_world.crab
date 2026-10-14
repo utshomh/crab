@@ -2,4 +2,5 @@
 // Run: cargo run -p crabi -- example/hello_world.crab
 
 var greeting = "Hello"
-print greeting + ", Crab!" // Hello, Crab!
+
+print(greeting + ", Crab!") // Hello, Crab!

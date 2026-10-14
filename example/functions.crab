@@ -1,0 +1,48 @@
+// First-class functions, recursion, closures, and callable record fields.
+// Run: cargo run -p crabi -- example/functions.crab
+
+fun square(n: Number) -> Number {
+    return n * n
+}
+
+fun apply(f: fun(Number) -> Number, n: Number) -> Number {
+    return f(n)
+}
+
+var operations = [
+    square: square,
+    double: fun(n: Number) -> Number {
+        return n * 2
+    }
+]
+
+print(apply(operations.square, 5))
+print(operations['double'](7))
+
+fun factorial(n: Number) -> Number {
+    if n <= 1 {
+        return 1
+    }
+
+    return n * factorial(n - 1)
+}
+
+print(factorial(20))
+
+fun makeCounter(start: Number) -> fun() -> Number {
+    var count = start
+
+    return fun() -> Number {
+        count = count + 1
+
+        return count
+    }
+}
+
+var counter = makeCounter(0)
+var alias = counter
+
+print(counter(), alias(), counter())
+
+var output = [write: print]
+output.write('First-class built-ins:', map(['crab', 'fun'], len))

@@ -1,21 +1,31 @@
 // Sieve of Eratosthenes. Run: cargo run -p crabi -- example/prime_sieve.crab
+
 var limit = 100
 var prime = [true; limit + 1]
 prime[0] = false
 prime[1] = false
+
 var candidate = 2
+
 while candidate * candidate <= limit {
     if prime[candidate] {
         var multiple = candidate * candidate
+
         while multiple <= limit {
             prime[multiple] = false
             multiple = multiple + candidate
         }
     }
+
     candidate = candidate + 1
 }
+
 var primes = [0; 0]
+
 for number in 2..limit {
-    if prime[number] { primes = push(primes, number) }
+    if prime[number] {
+        primes = push(primes, number)
+    }
 }
-print primes
+
+print(primes)

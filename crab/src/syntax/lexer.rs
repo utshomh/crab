@@ -23,15 +23,18 @@ impl<'a> Lexer<'a> {
         let mut tokens = Vec::new();
         loop {
             let token = self.next_token();
+
             match token.kind {
                 TokenKind::Eof => {
                     tokens.push(token);
                     break;
                 }
+
                 TokenKind::Whitespace | TokenKind::Invalid => {}
                 _ => tokens.push(token),
             }
         }
+
         tokens
     }
 
@@ -52,15 +55,23 @@ impl<'a> Lexer<'a> {
         };
         let kind = match ch {
             '+' => TokenKind::Plus,
+            '-' if self.peek() == Some('>') => {
+                self.advance();
+                TokenKind::Arrow
+            }
+
             '-' => TokenKind::Minus,
             '*' => TokenKind::Star,
             '/' if self.peek() == Some('/') => {
                 self.advance();
+
                 while self.peek().is_some_and(|ch| ch != '\n' && ch != '\r') {
                     self.advance();
                 }
+
                 TokenKind::Whitespace
             }
+
             '/' => TokenKind::Slash,
             '[' => TokenKind::OpenBracket,
             ']' => TokenKind::CloseBracket,
@@ -71,6 +82,7 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 TokenKind::DotDot
             }
+
             '.' => TokenKind::Dot,
             '(' => TokenKind::OpenParen,
             ')' => TokenKind::CloseParen,
@@ -83,9 +95,11 @@ impl<'a> Lexer<'a> {
                     _ => '=',
                 };
                 let paired = self.peek() == Some(second);
+
                 if paired {
                     self.advance();
                 }
+
                 match (ch, paired) {
                     ('>', true) => TokenKind::GreaterEqual,
                     ('>', false) => TokenKind::Greater,
@@ -102,42 +116,54 @@ impl<'a> Lexer<'a> {
                     _ => unreachable!(),
                 }
             }
+
             '\'' | '"' => {
                 let content_start = self.current;
+
                 while self.peek().is_some_and(|next| next != ch) {
                     self.advance();
                 }
+
                 let content_end = self.current;
+
                 if self.advance().is_none() {
                     self.diagnostic_bag.borrow_mut().report(
                         Position::new(start, self.current),
                         "Unterminated string literal",
                     );
                 }
+
                 return Token::new(
                     TokenKind::String,
                     self.source[content_start..content_end].to_owned(),
                     Position::new(start, self.current),
                 );
             }
+
             ch if ch.is_ascii_whitespace() => {
                 while self.peek().is_some_and(|ch| ch.is_ascii_whitespace()) {
                     self.advance();
                 }
+
                 TokenKind::Whitespace
             }
+
             ch if ch.is_ascii_digit() => {
                 while self.peek().is_some_and(|ch| ch.is_ascii_digit()) {
                     self.advance();
                 }
+
                 TokenKind::Number
             }
+
             ch if ch.is_ascii_alphabetic() => {
                 while self.peek().is_some_and(|ch| ch.is_ascii_alphanumeric()) {
                     self.advance();
                 }
+
                 TokenKind::get_lexeme_type(&self.source[start..self.current])
             }
+
             ch => {
                 self.diagnostic_bag
                     .borrow_mut()

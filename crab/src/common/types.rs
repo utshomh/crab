@@ -18,23 +18,44 @@ pub enum Type {
     Map(Box<Type>, Box<Type>),
     Record(BTreeMap<String, Type>),
     Range,
+    Function(Vec<Type>, Box<Type>),
+    Builtin(String),
 }
 
 impl Display for Type {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
+            Type::Function(parameters, result) => {
+                write!(f, "fun(")?;
+
+                for (index, typ) in parameters.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{typ}")?;
+                }
+
+                write!(f, ") -> {result}")
+            }
+
+            Type::Builtin(name) => write!(f, "builtin<{name}>"),
             Type::List(element) => write!(f, "List<{element}>"),
             Type::Map(key, value) => write!(f, "Map<{key}, {value}>"),
             Type::Record(fields) => {
                 write!(f, "[")?;
+
                 for (index, (name, typ)) in fields.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
+
                     write!(f, "{name}: {typ}")?;
                 }
+
                 write!(f, "]")
             }
+
             _ => write!(f, "{self:?}"),
         }
     }
@@ -50,6 +71,8 @@ pub enum Object {
     Map(Type, Type, Rc<MapData>),
     Record(Rc<Vec<(String, Object)>>),
     Range(Number, Number),
+    Function(u64, Type),
+    Builtin(String, Option<Type>),
 }
 
 impl Object {
@@ -68,6 +91,10 @@ impl Object {
                     .collect(),
             ),
             Object::Range(_, _) => Type::Range,
+            Object::Function(_, typ) => typ.clone(),
+            Object::Builtin(name, signature) => signature
+                .clone()
+                .unwrap_or_else(|| Type::Builtin(name.clone())),
         }
     }
 
@@ -102,44 +129,60 @@ impl Display for Object {
             Object::String(s) => write!(f, "{s}"),
             Object::List(_, values) => {
                 write!(f, "[")?;
+
                 for (index, value) in values.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
+
                     display_element(f, value)?;
                 }
+
                 write!(f, "]")
             }
+
             Object::Map(_, _, data) => {
                 write!(f, "[")?;
+
                 for (index, (key, value)) in data.entries.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
+
                     match key {
                         Key::Number(n) => write!(f, "{n}")?,
                         Key::String(s) => write!(f, "{s:?}")?,
                     }
+
                     write!(f, ": ")?;
                     display_element(f, value)?;
                 }
+
                 if data.entries.is_empty() {
                     write!(f, ":")?;
                 }
+
                 write!(f, "]")
             }
+
             Object::Record(fields) => {
                 write!(f, "[")?;
+
                 for (index, (name, value)) in fields.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
+
                     write!(f, "{name}: ")?;
                     display_element(f, value)?;
                 }
+
                 write!(f, "]")
             }
+
             Object::Range(start, end) => write!(f, "{start}..{end}"),
+            Object::Function(_, typ) => write!(f, "<{typ}>"),
+            Object::Builtin(name, _) => write!(f, "<builtin {name}>"),
         }
     }
 }
@@ -210,6 +253,7 @@ impl MapData {
     pub fn remove(&mut self, key: &Key) {
         if let Some(index) = self.indices.remove(key) {
             self.entries.remove(index);
+
             for (index, (key, _)) in self.entries.iter().enumerate().skip(index) {
                 self.indices.insert(key.clone(), index);
             }
@@ -221,6 +265,8 @@ impl PartialEq for Object {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Unit, Self::Unit) => true,
+            (Self::Function(a, _), Self::Function(b, _)) => a == b,
+            (Self::Builtin(a, _), Self::Builtin(b, _)) => a == b,
             (Self::Number(a), Self::Number(b)) => a == b,
             (Self::Boolean(a), Self::Boolean(b)) => a == b,
             (Self::String(a), Self::String(b)) => a == b,
@@ -232,8 +278,42 @@ impl PartialEq for Object {
                         b.iter().any(|(key, other)| name == key && value == other)
                     })
             }
+
             (Self::Range(a, b), Self::Range(c, d)) => a == c && b == d,
             _ => false,
         }
     }
 }
+
+pub const BUILTINS: &[&str] = &[
+    "print",
+    "len",
+    "push",
+    "pop",
+    "keys",
+    "values",
+    "has",
+    "get",
+    "remove",
+    "collect",
+    "map",
+    "filter",
+    "fold",
+    "each",
+    "sort",
+    "str",
+    "abs",
+    "min",
+    "max",
+    "input",
+    "readLine",
+    "readAll",
+    "readFile",
+    "readLines",
+    "parseNumber",
+    "parseBoolean",
+    "tryParseNumber",
+    "tryParseBoolean",
+    "trim",
+    "split",
+];

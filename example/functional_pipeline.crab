@@ -1,0 +1,40 @@
+// Typed callbacks on records. Run: cargo run -p crabi -- example/functional_pipeline.crab
+
+var transactions = [
+    [name: 'Alice', amount: 120],
+    [name: 'Bob', amount: -25],
+    [name: 'Cara', amount: 80],
+    [name: 'Dan', amount: 200],
+]
+
+var income = filter(transactions, fun(t: [name: String, amount: Number]) -> Boolean {
+    return t.amount > 0
+})
+
+var amounts = map(income, fun(t: [name: String, amount: Number]) -> Number {
+    return t.amount
+})
+
+var total = fold(amounts, 0, fun(total: Number, amount: Number) -> Number {
+    return total + amount
+})
+
+print('Total income:', total) // 400
+
+var ranked = sort(income, fun(
+    a: [name: String, amount: Number],
+    b: [name: String, amount: Number]
+) -> Number {
+    return b.amount - a.amount
+})
+
+var names = map(ranked, fun(t: [name: String, amount: Number]) -> String {
+    return t.name
+})
+
+print(names) // ["Dan", "Alice", "Cara"]
+
+var emit = print
+each(names, emit)
+
+print(map(names, len)) // First-class polymorphic built-in callback.

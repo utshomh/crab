@@ -16,36 +16,45 @@ var height = 10
 var generations = 4
 
 // Moving up/down a row divides/multiplies a cell's weight by rowStride.
+
 var rowStride = 1
+
 for column = 1 to width {
     rowStride = rowStride * 2
 }
 
 // Seed a glider. Its five cells shift one step down and right every four turns.
+
 var board = 0
 var weight = 1
+
 for y = 0 to height - 1 {
     for x = 0 to width - 1 {
         // BEGIN SEED
+
         if (x == 2 && y == 1) || (x == 3 && y == 2) || (x >= 1 && x <= 3 && y == 3) {
             board = board + weight
         }
+
         // END SEED
         weight = weight * 2
     }
 }
 
 for generation = 0 to generations {
-    print "Generation:"
-    print generation
+    print("Generation:")
+    print(generation)
+
     var next = 0
     weight = 1
 
     for y = 0 to height - 1 {
         var row = ""
+
         for x = 0 to width - 1 {
             var quotient = board / weight
             var alive = quotient - (quotient / 2) * 2
+
             if alive == 1 {
                 row = row + "#"
             } else {
@@ -54,22 +63,27 @@ for generation = 0 to generations {
 
             if generation < generations {
                 var neighbors = 0
+
                 for dy = -1 to 1 {
                     for dx = -1 to 1 {
                         var nx = x + dx
                         var ny = y + dy
+
                         if (dx != 0 || dy != 0) && nx >= 0 && nx < width && ny >= 0 && ny < height {
                             var neighborWeight = weight
+
                             if dy == -1 {
                                 neighborWeight = neighborWeight / rowStride
                             } else if dy == 1 {
                                 neighborWeight = neighborWeight * rowStride
                             }
+
                             if dx == -1 {
                                 neighborWeight = neighborWeight / 2
                             } else if dx == 1 {
                                 neighborWeight = neighborWeight * 2
                             }
+
                             var neighbor = board / neighborWeight
                             neighbors = neighbors + neighbor - (neighbor / 2) * 2
                         }
@@ -80,10 +94,13 @@ for generation = 0 to generations {
                     next = next + weight
                 }
             }
+
             weight = weight * 2
         }
-        print row
+
+        print(row)
     }
-    print ""
+
+    print("")
     board = next
 }

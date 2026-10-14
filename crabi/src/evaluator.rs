@@ -12,10 +12,25 @@ use crab::{
     },
 };
 
-pub(super) type EvaluationResult = Result<Object, Diagnostic>;
+#[derive(Debug)]
+pub(super) enum Signal {
+    Error(Diagnostic),
+    Return(Object),
+}
+
+impl From<Diagnostic> for Signal {
+    fn from(error: Diagnostic) -> Self {
+        Self::Error(error)
+    }
+}
+
+pub(super) type EvaluationResult = Result<Object, Signal>;
 
 pub(crate) struct Evaluator {
     bound_statements: Rc<Vec<BoundStatement>>,
+    pub(super) source: Rc<str>,
+    pub(super) depth: usize,
+    pub(super) roots: Vec<String>,
     pub(super) bindings: Rc<RefCell<Environment>>,
 }
 
@@ -23,19 +38,57 @@ impl Evaluator {
     pub(crate) fn new(
         bound_statements: Vec<BoundStatement>,
         bindings: Rc<RefCell<Environment>>,
+        source: Rc<str>,
+        roots: Vec<String>,
     ) -> Self {
         Self {
             bound_statements: Rc::new(bound_statements),
             bindings,
+            source,
+            depth: 0,
+            roots,
         }
     }
 
-    pub(crate) fn evaluate(&mut self) -> EvaluationResult {
+    pub(crate) fn evaluate(&mut self) -> Result<Object, Diagnostic> {
         let statements = Rc::clone(&self.bound_statements);
+        let result = self
+            .evaluate_statements(&statements)
+            .map_err(|signal| match signal {
+                Signal::Error(mut diagnostic) => {
+                    if diagnostic.source.is_none() {
+                        diagnostic.source = Some(Rc::clone(&self.source));
+                    }
+
+                    diagnostic
+                }
+
+                Signal::Return(_) => {
+                    Diagnostic::new(Default::default(), "return outside a function".into())
+                }
+            })?;
+        self.bindings.borrow_mut().collect(&result, &self.roots);
+
+        Ok(result)
+    }
+
+    pub(super) fn evaluate_statements(
+        &mut self,
+        statements: &[BoundStatement],
+    ) -> EvaluationResult {
+        for statement in statements {
+            if let BoundStatement::Function(symbol, code) = statement {
+                let value = self.bindings.borrow_mut().function(Rc::clone(code));
+                self.bindings.borrow_mut().set(symbol.clone(), value);
+            }
+        }
+
         let mut object = Object::Unit;
-        for statement in statements.iter() {
+
+        for statement in statements {
             object = self.evaluate_statement(statement)?;
         }
+
         Ok(object)
     }
 
@@ -46,6 +99,7 @@ impl Evaluator {
         let outer = Rc::clone(&self.bindings);
         self.bindings = Rc::new(RefCell::new(Environment::extend(Rc::clone(&outer))));
         let result = evaluate(self);
+        self.bindings.borrow_mut().release_scope();
         self.bindings = outer;
         result
     }
@@ -56,21 +110,30 @@ impl Evaluator {
             BoundStatement::Expression(statement) => {
                 self.evaluate_expression(&statement.expression)
             }
-            BoundStatement::Print(statement) => {
-                println!("{}", self.evaluate_expression(&statement.expression)?);
-                Ok(Object::Unit)
+
+            BoundStatement::Function(_, _) => Ok(Object::Unit),
+            BoundStatement::Return(value, _) => {
+                let value = if let Some(value) = value {
+                    self.evaluate_expression(value)?
+                } else {
+                    Object::Unit
+                };
+
+                Err(Signal::Return(value))
             }
+
             BoundStatement::Var(statement) => {
                 let object = self.evaluate_expression(&statement.expression)?;
                 self.bindings
                     .borrow_mut()
                     .set(statement.name.clone(), object.clone());
+
                 Ok(object)
             }
+
             BoundStatement::Block(statement) => self.with_scope(|evaluator| {
-                for statement in &statement.statements {
-                    evaluator.evaluate_statement(statement)?;
-                }
+                evaluator.evaluate_statements(&statement.statements)?;
+
                 Ok(Object::Unit)
             }),
             BoundStatement::If(statement) => {
@@ -82,64 +145,89 @@ impl Evaluator {
                     Ok(Object::Unit)
                 }
             }
+
             BoundStatement::While(statement) => {
                 while self.evaluate_boolean(&statement.condition)? {
                     self.evaluate_statement(&statement.body)?;
                 }
+
                 Ok(Object::Unit)
             }
+
             BoundStatement::For(statement) => {
                 // Inclusive, fixed range; both bounds are evaluated once, before the loop scope.
                 let lower = self.evaluate_number(&statement.lower_bound)?;
                 let upper = self.evaluate_number(&statement.upper_bound)?;
                 self.with_scope(|evaluator| {
                     let mut value = lower;
+
                     while value <= upper {
-                        evaluator
-                            .bindings
-                            .borrow_mut()
-                            .set(statement.identifier.clone(), Object::Number(value.clone()));
-                        evaluator.evaluate_statement(&statement.body)?;
+                        evaluator.with_scope(|iteration| {
+                            iteration
+                                .bindings
+                                .borrow_mut()
+                                .set(statement.identifier.clone(), Object::Number(value.clone()));
+                            iteration.evaluate_statement(&statement.body)
+                        })?;
                         value += 1u8;
                     }
+
                     Ok(Object::Unit)
                 })
             }
         }
     }
 
-    fn evaluate_number(&mut self, expression: &BoundExpression) -> Result<Number, Diagnostic> {
+    fn evaluate_number(&mut self, expression: &BoundExpression) -> Result<Number, Signal> {
         match self.evaluate_expression(expression)? {
             Object::Number(value) => Ok(value),
-            _ => Err(Diagnostic::new(
-                expression.get_position(),
-                "Expected a number".into(),
-            )),
+            _ => Err(Diagnostic::new(expression.get_position(), "Expected a number".into()).into()),
         }
     }
 
-    fn evaluate_boolean(&mut self, expression: &BoundExpression) -> Result<bool, Diagnostic> {
+    fn evaluate_boolean(&mut self, expression: &BoundExpression) -> Result<bool, Signal> {
         match self.evaluate_expression(expression)? {
             Object::Boolean(value) => Ok(value),
-            _ => Err(Diagnostic::new(
-                expression.get_position(),
-                "Expected a boolean".into(),
-            )),
+            _ => {
+                Err(Diagnostic::new(expression.get_position(), "Expected a boolean".into()).into())
+            }
         }
     }
 
     pub(super) fn evaluate_expression(&mut self, expression: &BoundExpression) -> EvaluationResult {
-        let error = |message: &str| Diagnostic::new(expression.get_position(), message.into());
+        let error = |message: &str| {
+            Signal::Error(Diagnostic::new(expression.get_position(), message.into()))
+        };
+
         match expression {
+            BoundExpression::Function(code) => {
+                Ok(self.bindings.borrow_mut().function(Rc::clone(code)))
+            }
+
+            BoundExpression::Specialize(expression, signature, _) => {
+                let value = self.evaluate_expression(expression)?;
+
+                if let Object::Builtin(name, _) = value {
+                    Ok(Object::Builtin(name, Some(signature.clone())))
+                } else {
+                    Ok(value)
+                }
+            }
+
             BoundExpression::Collection(expression) => self.evaluate_collection(expression),
             BoundExpression::Literal(literal) => Ok(literal.value.clone()),
-            BoundExpression::Variable(variable) => self
-                .bindings
-                .borrow()
-                .get(&variable.name)
-                .ok_or_else(|| error(&format!("Name '{}' is not initialized", variable.name))),
+            BoundExpression::Variable(variable) => {
+                self.bindings.borrow().get(&variable.name).ok_or_else(|| {
+                    error(&format!(
+                        "Name '{}' is not initialized",
+                        variable.name.split('#').next().unwrap_or(&variable.name)
+                    ))
+                })
+            }
+
             BoundExpression::Unary(unary) => {
                 let right = self.evaluate_expression(&unary.right)?;
+
                 match (&unary.operator.operation_kind, right) {
                     (Unary::Identity, Object::Number(value)) => Ok(Object::Number(value)),
                     (Unary::Negation, Object::Number(value)) => Ok(Object::Number(-value)),
@@ -147,55 +235,72 @@ impl Evaluator {
                     _ => Err(error("Invalid unary operand")),
                 }
             }
+
             BoundExpression::Binary(binary) => {
                 let left = self.evaluate_expression(&binary.left)?;
+
                 match (&binary.operator.operation_kind, &left) {
                     (Binary::LogicalAnd, Object::Boolean(false)) => {
                         return Ok(Object::Boolean(false))
                     }
+
                     (Binary::LogicalOr, Object::Boolean(true)) => return Ok(Object::Boolean(true)),
                     _ => {}
                 }
+
                 let right = self.evaluate_expression(&binary.right)?;
+
                 match (&binary.operator.operation_kind, left, right) {
                     (Binary::Addition, Object::Number(a), Object::Number(b)) => {
                         Ok(Object::Number(a + b))
                     }
+
                     (Binary::Subtraction, Object::Number(a), Object::Number(b)) => {
                         Ok(Object::Number(a - b))
                     }
+
                     (Binary::Multiplication, Object::Number(a), Object::Number(b)) => {
                         Ok(Object::Number(a * b))
                     }
+
                     (Binary::Division, Object::Number(_), Object::Number(b))
                         if b == Number::default() =>
                     {
                         Err(error("Division by zero"))
                     }
+
                     (Binary::Division, Object::Number(a), Object::Number(b)) => {
                         Ok(Object::Number(a / b))
                     }
+
                     (Binary::Addition, Object::String(a), Object::String(b)) => {
                         Ok(Object::String(a + &b))
                     }
+
                     (Binary::Greater, Object::Number(a), Object::Number(b)) => {
                         Ok(Object::Boolean(a > b))
                     }
+
                     (Binary::Lesser, Object::Number(a), Object::Number(b)) => {
                         Ok(Object::Boolean(a < b))
                     }
+
                     (Binary::GreaterEqual, Object::Number(a), Object::Number(b)) => {
                         Ok(Object::Boolean(a >= b))
                     }
+
                     (Binary::LesserEqual, Object::Number(a), Object::Number(b)) => {
                         Ok(Object::Boolean(a <= b))
                     }
+
                     (Binary::LogicalAnd, Object::Boolean(a), Object::Boolean(b)) => {
                         Ok(Object::Boolean(a && b))
                     }
+
                     (Binary::LogicalOr, Object::Boolean(a), Object::Boolean(b)) => {
                         Ok(Object::Boolean(a || b))
                     }
+
                     (Binary::Equal, a, b) => Ok(Object::Boolean(a == b)),
                     (Binary::NotEqual, a, b) => Ok(Object::Boolean(a != b)),
                     _ => Err(error("Invalid binary operands")),

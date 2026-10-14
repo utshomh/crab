@@ -32,11 +32,16 @@ impl Position {
 pub struct Diagnostic {
     pub position: Position,
     pub message: String,
+    pub source: Option<std::rc::Rc<str>>,
 }
 
 impl Diagnostic {
     pub fn new(position: Position, message: String) -> Self {
-        Self { position, message }
+        Self {
+            position,
+            message,
+            source: None,
+        }
     }
 }
 

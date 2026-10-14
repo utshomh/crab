@@ -23,13 +23,16 @@ impl Compilation {
         let diagnostic_bag = Rc::new(RefCell::new(DiagnosticBag::new()));
         let mut lexer = Lexer::new(source, Rc::clone(&diagnostic_bag));
         let tokens = lexer.lex();
-        let mut parser = Parser::new(tokens, Rc::clone(&diagnostic_bag));
+        let mut parser = Parser::new(tokens, Rc::clone(&diagnostic_bag), source);
         let unbound_program = parser.parse();
         // Binding is tentative: callers commit compilation.bindings after execution succeeds.
         let tentative_bindings = Rc::new(RefCell::new(bindings.borrow().snapshot()));
         let bound_program = if diagnostic_bag.borrow().diagnostics.is_empty() {
-            let mut binder =
-                Binder::new(Rc::clone(&tentative_bindings), Rc::clone(&diagnostic_bag));
+            let mut binder = Binder::new(
+                Rc::clone(&tentative_bindings),
+                Rc::clone(&diagnostic_bag),
+                Rc::from(source),
+            );
             binder.bind(unbound_program.clone())
         } else {
             Vec::new()

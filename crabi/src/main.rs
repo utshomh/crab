@@ -1,6 +1,8 @@
 mod collections;
 mod environment;
 mod evaluator;
+mod functions;
+mod io_builtins;
 
 use crate::{environment::Environment, evaluator::Evaluator};
 use colored::Colorize;
@@ -9,13 +11,29 @@ use std::{
     cell::RefCell,
     env::args,
     fs::read_to_string,
-    io::{self, BufRead, Write},
+    io::{self, Write},
     process::ExitCode,
     rc::Rc,
 };
 
 fn main() -> ExitCode {
+    // Keep the language call-depth guard below the native stack limit on Windows.
+    match std::thread::Builder::new()
+        .name("crab-runtime".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(run)
+    {
+        Ok(worker) => worker.join().unwrap_or(ExitCode::from(70)),
+        Err(error) => {
+            eprintln!("Cannot start interpreter: {error}");
+            ExitCode::from(74)
+        }
+    }
+}
+
+fn run() -> ExitCode {
     let args: Vec<String> = args().collect();
+
     match args.as_slice() {
         [_] => match run_repl() {
             Ok(()) => ExitCode::SUCCESS,
@@ -33,6 +51,7 @@ fn main() -> ExitCode {
 }
 
 fn report_diagnostic(source: &str, diagnostic: &Diagnostic) {
+    let source = diagnostic.source.as_deref().unwrap_or(source);
     let position = &diagnostic.position;
     let line = position.get_line(source);
     eprintln!("{}", format!("[error in line: {line}]").yellow());
@@ -61,7 +80,6 @@ fn run_repl() -> io::Result<()> {
     let mut show_syntax_tree = false;
     let mut show_bound_tree = false;
     let stdin = io::stdin();
-    let mut input = stdin.lock();
     let mut stdout = io::stdout();
     loop {
         print!("> ");
@@ -70,17 +88,21 @@ fn run_repl() -> io::Result<()> {
         let mut eof = false;
         loop {
             let mut line = String::new();
-            if input.read_line(&mut line)? == 0 {
+
+            if stdin.read_line(&mut line)? == 0 {
                 eof = true;
                 break;
             }
+
             if line.trim().is_empty() {
                 break;
             }
+
             source.push_str(&line);
             print!(".. ");
             stdout.flush()?;
         }
+
         match source.trim() {
             "@exit" | "@e" => break,
             "@syntax_tree" | "@st" => show_syntax_tree = !show_syntax_tree,
@@ -88,24 +110,33 @@ fn run_repl() -> io::Result<()> {
             "" => {}
             _ => {
                 let compilation = Compilation::compile(&source, Rc::clone(&bindings));
+
                 if show_syntax_tree {
                     println!("{:#?}", compilation.unbound_program);
                 }
+
                 if show_bound_tree {
                     println!("{:#?}", compilation.bound_program);
                 }
+
                 if compilation.diagnostic_bag.borrow().diagnostics.is_empty() {
                     // Discard all variable changes if execution fails. Printed output is immediate.
                     let tentative_environment =
                         Rc::new(RefCell::new(environment.borrow().snapshot()));
-                    let mut evaluator =
-                        Evaluator::new(compilation.bound_program, tentative_environment);
+                    let mut evaluator = Evaluator::new(
+                        compilation.bound_program,
+                        tentative_environment,
+                        Rc::from(source.as_str()),
+                        compilation.bindings.borrow().symbols(),
+                    );
+
                     match evaluator.evaluate() {
                         Ok(value) => {
                             println!("{value}");
                             environment = evaluator.bindings;
                             bindings = compilation.bindings;
                         }
+
                         Err(diagnostic) => report_diagnostic(&source, &diagnostic),
                     }
                 } else {
@@ -115,10 +146,12 @@ fn run_repl() -> io::Result<()> {
                 }
             }
         }
+
         if eof {
             break;
         }
     }
+
     Ok(())
 }
 
@@ -127,20 +160,27 @@ fn run_file(path: &str) -> ExitCode {
         Ok(source) => source,
         Err(error) => {
             eprintln!("Cannot read '{path}': {error}");
+
             return ExitCode::from(74);
         }
     };
     let compilation = Compilation::compile(&source, Rc::new(RefCell::new(Bindings::default())));
+
     if !compilation.diagnostic_bag.borrow().diagnostics.is_empty() {
         for diagnostic in &compilation.diagnostic_bag.borrow().diagnostics {
             report_diagnostic(&source, diagnostic);
         }
+
         return ExitCode::from(65);
     }
+
     let mut evaluator = Evaluator::new(
         compilation.bound_program,
         Rc::new(RefCell::new(Environment::default())),
+        Rc::from(source.as_str()),
+        compilation.bindings.borrow().symbols(),
     );
+
     match evaluator.evaluate() {
         Ok(_) => ExitCode::SUCCESS,
         Err(diagnostic) => {

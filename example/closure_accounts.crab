@@ -1,0 +1,45 @@
+// A record of functions with shared private state.
+// Run: cargo run -p crabi -- example/closure_accounts.crab
+
+fun makeAccount(initial: Number) -> [
+    deposit: fun(Number) -> Number,
+    withdraw: fun(Number) -> Boolean,
+    balance: fun() -> Number
+] {
+    var balance = initial
+
+    return [
+        deposit: fun(amount: Number) -> Number {
+            if amount >= 0 {
+                balance = balance + amount
+            }
+
+            return balance
+        },
+
+        withdraw: fun(amount: Number) -> Boolean {
+            if amount < 0 || amount > balance {
+                return false
+            }
+
+            balance = balance - amount
+
+            return true
+        },
+
+        balance: fun() -> Number {
+            return balance
+        },
+    ]
+}
+
+var alice = makeAccount(100)
+var bob = makeAccount(50)
+var alias = alice // Copies of callable values share their closure state.
+
+print(alice.deposit(25))
+print(alias.withdraw(40))
+print(alice.balance())
+print(bob.balance())
+print(alice.withdraw(1000))
+print(alice.balance())

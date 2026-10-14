@@ -1,12 +1,17 @@
 // Word frequencies in first-seen order.
 // Run: cargo run -p crabi -- example/frequency_count.crab
+
 var words = ['crab', 'rust', 'crab', 'arrays', 'rust', 'crab']
+
 var counts: Map<String, Number> = [:]
+
 for word in words {
     counts[word] = get(counts, word, 0) + 1
 }
-print counts // ["crab": 3, "rust": 2, "arrays": 1]
+
+print(counts) // ["crab": 3, "rust": 2, "arrays": 1]
+
 for word in keys(counts) {
-    print word
-    print counts[word]
+    print(word)
+    print(counts[word])
 }

@@ -59,9 +59,11 @@ fn strings_preserve_empty_unicode_multiline_and_literal_backslashes() {
 
 #[test]
 fn unterminated_strings_are_diagnosed() {
-    for source in ["\"", "print \"a", "print \"a\nsecond"] {
+    for source in ["\"", "print(\")a", "print(\")a\nsecond"] {
         let compilation = compile(source);
-        assert_eq!(messages(&compilation), ["Unterminated string literal"]);
+        assert!(messages(&compilation)
+            .iter()
+            .any(|message| message == "Unterminated string literal"));
         assert!(compilation.bound_program.is_empty());
     }
 }
@@ -70,9 +72,9 @@ fn unterminated_strings_are_diagnosed() {
 fn incomplete_and_invalid_syntax_is_diagnosed() {
     for source in [
         "{",
-        "{ print 1",
+        "{ print(1)",
         "{{}",
-        "print",
+        "print(",
         "var",
         "var x =",
         "(1 + 2",
@@ -101,6 +103,7 @@ fn integer_literals_have_arbitrary_precision() {
     ] {
         assert!(messages(&compile(source)).is_empty(), "{source}");
     }
+
     let digits = "9".repeat(1000);
     let compilation = compile(&digits);
     assert!(messages(&compilation).is_empty());
@@ -123,20 +126,21 @@ fn comments_are_ignored_and_do_not_change_string_contents_or_positions() {
         assert!(messages(&compile(source)).is_empty());
         assert!(compile(source).bound_program.is_empty());
     }
-    let compilation = compile("// first\nprint missing // trailing");
+
+    let compilation = compile("// first\nprint(missing) // trailing");
     let bag = compilation.diagnostic_bag.borrow();
     assert_eq!(
         bag.diagnostics[0]
             .position
-            .get_line("// first\nprint missing // trailing"),
+            .get_line("// first\nprint(missing) // trailing"),
         2
     );
-    assert!(messages(&compile("print \"https://example.com\" // comment")).is_empty());
+    assert!(messages(&compile("print(\"https://example.com\") // comment")).is_empty());
 }
 
 #[test]
 fn unicode_errors_use_byte_spans() {
-    let source = "print \"\u{e9}\"\n\u{1f980}";
+    let source = "print(\"é\")\n🦀";
     let compilation = compile(source);
     let bag = compilation.diagnostic_bag.borrow();
     let diagnostic = &bag.diagnostics[0];
@@ -149,7 +153,7 @@ fn unicode_errors_use_byte_spans() {
 
 #[test]
 fn diagnostics_report_the_affected_line() {
-    let source = "print missing\nprint 1\n";
+    let source = "print(missing)\nprint(1)\n";
     let compilation = compile(source);
     let bag = compilation.diagnostic_bag.borrow();
     assert_eq!(bag.diagnostics[0].position.get_line(source), 1);
@@ -169,7 +173,7 @@ fn diagnostics_report_the_affected_line() {
 
 #[test]
 fn eof_errors_have_zero_width_spans_at_the_end() {
-    let source = "{ print 1";
+    let source = "{ print(1)";
     let compilation = compile(source);
     let bag = compilation.diagnostic_bag.borrow();
     let position = &bag.diagnostics.last().unwrap().position;
@@ -179,14 +183,14 @@ fn eof_errors_have_zero_width_spans_at_the_end() {
 #[test]
 fn type_errors_are_rejected() {
     for source in [
-        "print missing",
+        "print(missing)",
         "1 + true",
         "!1",
         "-true",
         "1 && 2",
         "var x = 1 x = false",
-        "if 1 print 1",
-        "while 1 print 1",
+        "if 1 print(1)",
+        "while 1 print(1)",
     ] {
         assert!(!messages(&compile(source)).is_empty(), "{source}");
     }
@@ -194,21 +198,25 @@ fn type_errors_are_rejected() {
 
 #[test]
 fn only_invalid_for_bounds_receive_type_errors() {
-    for source in ["for i = true to 2 print i", "for i = 1 to false print i"] {
+    for source in ["for i = true to 2 print(i)", "for i = 1 to false print(i)"] {
         assert_eq!(messages(&compile(source)).len(), 1, "{source}");
     }
-    assert_eq!(messages(&compile("for i = true to false print i")).len(), 2);
+
+    assert_eq!(
+        messages(&compile("for i = true to false print(i)")).len(),
+        2
+    );
 }
 
 #[test]
 fn control_flow_declarations_do_not_escape_their_scope() {
     for source in [
-        "if false var x = 1 print x",
-        "if true var x = 1 else print x",
-        "while false var x = 1 print x",
-        "for i = 2 to 1 var x = i print x",
-        "for i = 1 to 2 print i print i",
-        "{ var x = 1 } print x",
+        "if false var x = 1 print(x)",
+        "if true var x = 1 else print(x)",
+        "while false var x = 1 print(x)",
+        "for i = 2 to 1 var x = i print(x)",
+        "for i = 1 to 2 print(i) print(i)",
+        "{ var x = 1 } print(x)",
     ] {
         assert!(
             messages(&compile(source))
@@ -297,10 +305,10 @@ fn invalid_collection_types_and_operations_are_rejected() {
         "var a = [1; true]",
         "var a = true..2",
         "var a = [1] a[0] = false",
-        "var a = [1] print a['0']",
-        "print 1[0]",
-        "var a = [x: 1] print a.y",
-        "var a = [x: 1] var key = 'x' print a[key]",
+        "var a = [1] print(a['0'])",
+        "print(1[0])",
+        "var a = [x: 1] print(a.y)",
+        "var a = [x: 1] var key = 'x' print(a[key])",
         "var a = [x: 1] a.x = false",
         "var a = [x: 1] a.y = 2",
         "var a = ['x': 1] a[2] = 3",
@@ -317,9 +325,9 @@ fn invalid_collection_types_and_operations_are_rejected() {
         "pop(1)",
         "values([x: 1, y: false])",
         "var key = 'x' remove([x: 1], key)",
-        "for value in 1 print value",
-        "for value in [x: 1] print value",
-        "for value in [1] print value print value",
+        "for value in 1 print(value)",
+        "for value in [x: 1] print(value)",
+        "for value in [1] print(value) print(value)",
         "var a = ['x': 1] a = ['x': false]",
     ] {
         assert!(!messages(&compile(source)).is_empty(), "accepted {source}");
@@ -347,5 +355,104 @@ fn missing_collection_delimiters_and_invalid_entries_terminate() {
         "1...2",
     ] {
         assert!(!messages(&compile(source)).is_empty(), "accepted {source}");
+    }
+}
+
+#[test]
+fn function_types_and_invalid_function_programs_are_checked() {
+    for source in [
+        "return 1",
+        "fun f(n) {}",
+        "fun f(n: Number, n: Number) {}",
+        "fun f() -> Number {}",
+        "fun f() -> Number { if true { return 1 } }",
+        "fun f() -> Number { return false }",
+        "fun f() -> Number { return }",
+        "fun f() { return 1 }",
+        "fun f(n: Number) {} f()",
+        "fun f(n: Number) {} f(false)",
+        "var f = 1 f()",
+        "fun f() {} fun f() {}",
+        "var f: fun(Number) -> String = abs",
+        "var f: fun(Number) -> Number = print",
+        "map([1], fun(x: String) -> Number { return 1 })",
+        "filter([1], fun(x: Number) -> Number { return x })",
+        "each([1], fun(x: Number) -> Number { return x })",
+        "sort([1], fun(x: Number, y: Number) -> Boolean { return true })",
+        "fold([1], 0, fun(x: Number, y: Number) -> String { return 'x' })",
+        "abs(false)",
+        "min(1)",
+    ] {
+        assert!(!messages(&compile(source)).is_empty(), "accepted {source}");
+    }
+
+    for source in [
+        "var f: fun(Number) -> Number = abs",
+        "var p: [write: fun(Number) -> Unit] = [write: print] p.write(1)",
+        "fun f() -> Unit { return }",
+        "fun f(n: Number) -> Number { if n > 0 { return n } else { return 0 } }",
+    ] {
+        assert!(
+            messages(&compile(source)).is_empty(),
+            "{source}: {:?}",
+            messages(&compile(source))
+        );
+    }
+}
+
+#[test]
+fn incomplete_function_syntax_is_diagnosed_without_hanging() {
+    for source in [
+        "fun",
+        "fun f(",
+        "fun f(x:",
+        "fun f(x: fun(Number) ->",
+        "fun f() ->",
+        "fun f() {",
+        "fun f() { return",
+        "var f = fun(",
+        "var f: fun(Number",
+        "var r: [f: fun() -> Number = [:]",
+    ] {
+        assert!(!messages(&compile(source)).is_empty(), "accepted {source}");
+    }
+}
+
+#[test]
+fn io_and_parsing_builtins_enforce_arity_and_string_types() {
+    for source in [
+        "input(1)",
+        "input('a', 'b')",
+        "readLine('x')",
+        "readAll('x')",
+        "readFile()",
+        "readFile(1)",
+        "readLines(false)",
+        "parseNumber(1)",
+        "parseBoolean(true)",
+        "tryParseNumber()",
+        "tryParseBoolean(0)",
+        "trim(1)",
+        "split('x')",
+        "split('x', 1)",
+        "var read: fun(Number) -> String = readFile",
+        "var parse: fun(String) -> Number = parseBoolean",
+    ] {
+        assert!(!messages(&compile(source)).is_empty(), "accepted {source}");
+    }
+
+    for source in [
+        "var ask: fun() -> String = input",
+        "var ask: fun(String) -> String = input",
+        "var parse: fun(String) -> Number = parseNumber",
+        "var parser = [boolean: parseBoolean] parser.boolean('true')",
+        "map(['1', '2'], parseNumber)",
+        "var reader: fun() -> [text: String, eof: Boolean] = readLine",
+    ] {
+        assert!(
+            messages(&compile(source)).is_empty(),
+            "{source}: {:?}",
+            messages(&compile(source))
+        );
     }
 }

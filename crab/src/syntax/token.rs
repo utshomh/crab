@@ -42,7 +42,9 @@ pub enum TokenKind {
     False,
     Identifier,
 
-    Print,
+    Fun,
+    Return,
+    Arrow,
     Var,
     If,
     Else,
@@ -61,7 +63,8 @@ impl TokenKind {
         match lexeme {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
-            "print" => TokenKind::Print,
+            "fun" => TokenKind::Fun,
+            "return" => TokenKind::Return,
             "var" => TokenKind::Var,
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
@@ -115,7 +118,9 @@ impl Display for TokenKind {
             TokenKind::False => write!(f, "false"),
             TokenKind::Identifier => write!(f, "IDENTIFIER"),
 
-            TokenKind::Print => write!(f, "print"),
+            TokenKind::Fun => write!(f, "fun"),
+            TokenKind::Return => write!(f, "return"),
+            TokenKind::Arrow => write!(f, "->"),
             TokenKind::Var => write!(f, "var"),
             TokenKind::If => write!(f, "if"),
             TokenKind::Else => write!(f, "else"),

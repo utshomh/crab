@@ -5,7 +5,7 @@
 //   // begins a line comment; comments also work after a statement.
 //   var name = expression       declare a variable; its type is inferred
 //   name = expression           assign a value of the same type
-//   print expression            print a value followed by a newline
+//   print(value, ...)           call the built-in; space-separated values and newline
 //   { statements }              a lexical scope
 //   if condition statement else statement
 //   while condition statement
@@ -41,6 +41,34 @@
 //   1..10                       inclusive lazy range; reversed range is empty
 //   collect(1..10)              materialize a range as a list
 //   for item in collection statement   iterate a snapshot of a List, Map, or Range
-// Built-ins: len, push, pop, keys, values, has, get, remove, collect.
+// Built-ins: print, len, push, pop, keys, values, has, get, remove, collect.
 // pop(list) returns [items: remainingList, value: lastElement].
 // Built-ins return new collection values; use xs = push(xs, value) to retain them.
+
+// FUNCTIONS
+//   fun square(n: Number) -> Number { return n * n }
+//   var twice = fun(n: Number) -> Number { return n * 2 }
+//   var f: fun(Number) -> Number = square
+//   var actions = [run: square, write: print]
+//   actions.run(5)
+//   actions.write('hello')
+// Parameters require annotations. Omitted return types mean Unit.
+// Record types: [name: String, action: fun(Number) -> Number].
+// Named functions support self/mutual recursion. Functions capture lexical variables.
+// Copying a function shares its captured state; for-loop captures are per iteration.
+// return exits nested blocks and loops; a newline after return ends a bare return.
+// Extra built-ins: map, filter, fold, each, sort, str, abs, min, max.
+// All calls use parentheses, including print(). Built-ins are first-class and shadowable.
+
+// INPUT AND PARSING
+//   var name = input('Name: ')       optional prompt, one line, EOF errors
+//   var line = readLine()            [text: String, eof: Boolean]
+//   var text = readAll()             all remaining standard input through EOF
+//   var file = readFile('file.txt')  UTF-8 text, paths relative to working directory
+//   var lines = readLines('file.txt')  List<String> without LF/CRLF endings
+//   var n = parseNumber(' -123 ')    arbitrary-precision signed decimal integer
+//   var b = parseBoolean(' true ')   exact lowercase true/false after trimming
+//   var result = tryParseNumber('bad')  [ok: false, value: 0]
+//   var result = tryParseBoolean('bad') [ok: false, value: false]
+//   trim(text) and split(text, separator) help process text.
+// Failed parses and reads report runtime diagnostics; try-parsers permit recovery.

@@ -8,8 +8,8 @@ use crate::common::{
 use super::{
     syntax_tree::{
         BinaryExpression, BlockStatement, CollectionExpression, CollectionKind, EachStatement,
-        Expression, ExpressionStatement, ForStatement, IfStatement, LiteralExpression,
-        NameExpression, ParenthesizedExpression, PrintStatement, Statement, UnaryExpression,
+        Expression, ExpressionStatement, ForStatement, FunctionExpression, IfStatement,
+        LiteralExpression, NameExpression, ParenthesizedExpression, Statement, UnaryExpression,
         VarStatement, WhileStatement,
     },
     token::{Token, TokenKind},
@@ -18,13 +18,19 @@ use super::{
 pub(crate) struct Parser {
     tokens: Vec<Token>,
     current: usize,
+    source: String,
     pub(super) diagnostic_bag: Rc<RefCell<DiagnosticBag>>,
 }
 
 impl Parser {
-    pub(crate) fn new(tokens: Vec<Token>, diagnostic_bag: Rc<RefCell<DiagnosticBag>>) -> Self {
+    pub(crate) fn new(
+        tokens: Vec<Token>,
+        diagnostic_bag: Rc<RefCell<DiagnosticBag>>,
+        source: &str,
+    ) -> Self {
         Self {
             tokens,
+            source: source.to_owned(),
             current: 0,
             diagnostic_bag,
         }
@@ -32,9 +38,11 @@ impl Parser {
 
     pub(crate) fn parse(&mut self) -> Vec<Statement> {
         let mut statements = vec![];
+
         while self.peek(0).kind != TokenKind::Eof {
             statements.push(self.parse_statement());
         }
+
         self.match_token(TokenKind::Eof);
         statements
     }
@@ -46,7 +54,24 @@ impl Parser {
             TokenKind::If => self.parse_if_statement(),
             TokenKind::OpenBrace => self.parse_block_statement(),
             TokenKind::Var => self.parse_var_statement(),
-            TokenKind::Print => self.parse_print_statement(),
+            TokenKind::Fun if self.peek(1).kind == TokenKind::Identifier => {
+                let start = self.next_token().position;
+                let name = self.next_token().lexeme;
+                Statement::Function(name, self.parse_function(start))
+            }
+
+            TokenKind::Return => {
+                let start = self.next_token().position;
+                let newline = self.source[start.end..self.peek(0).position.start].contains('\n');
+                let value =
+                    if newline || self.token_matches(&[TokenKind::CloseBrace, TokenKind::Eof]) {
+                        None
+                    } else {
+                        Some(self.parse_expression())
+                    };
+                Statement::Return(value, start)
+            }
+
             _ => Statement::Expression(ExpressionStatement::new(self.parse_expression())),
         }
     }
@@ -54,16 +79,19 @@ impl Parser {
     fn parse_for_statement(&mut self) -> Statement {
         self.match_token(TokenKind::For);
         let identifier = self.match_token(TokenKind::Identifier);
+
         if self.peek(0).kind == TokenKind::In {
             self.advance();
             let iterable = self.parse_expression();
             let body = Box::new(self.parse_statement());
+
             return Statement::Each(EachStatement {
                 identifier,
                 iterable,
                 body,
             });
         }
+
         self.match_token(TokenKind::Equal);
         let lower_bound = self.parse_expression();
         self.match_token(TokenKind::To);
@@ -93,10 +121,12 @@ impl Parser {
                 self.advance();
                 Some(self.parse_if_statement())
             }
+
             (TokenKind::Else, _) => {
                 self.advance();
                 Some(self.parse_statement())
             }
+
             (_, _) => None,
         };
         Statement::If(IfStatement::new(condition, consequence, else_clause))
@@ -105,9 +135,11 @@ impl Parser {
     fn parse_block_statement(&mut self) -> Statement {
         self.match_token(TokenKind::OpenBrace);
         let mut statements = vec![];
+
         while !self.token_matches(&[TokenKind::CloseBrace, TokenKind::Eof]) {
             statements.push(self.parse_statement());
         }
+
         self.match_token(TokenKind::CloseBrace);
         Statement::Block(BlockStatement::new(statements))
     }
@@ -128,17 +160,13 @@ impl Parser {
         Statement::Var(statement)
     }
 
-    fn parse_print_statement(&mut self) -> Statement {
-        self.match_token(TokenKind::Print);
-        Statement::Print(PrintStatement::new(self.parse_expression()))
-    }
-
     fn parse_expression(&mut self) -> Expression {
         self.parse_assignment_expression()
     }
 
     fn parse_assignment_expression(&mut self) -> Expression {
         let target = self.parse_or_expression();
+
         if self.peek(0).kind == TokenKind::Equal {
             self.advance();
             let value = self.parse_assignment_expression();
@@ -154,36 +182,43 @@ impl Parser {
 
     fn parse_or_expression(&mut self) -> Expression {
         let mut left = self.parse_and_expression();
+
         while self.token_matches(&[TokenKind::PipePipe]) {
             let operator = self.next_token();
             let right = self.parse_and_expression();
             left = Expression::Binary(BinaryExpression::new(left, operator, right));
         }
+
         left
     }
 
     fn parse_and_expression(&mut self) -> Expression {
         let mut left = self.parse_equality_expression();
+
         while self.token_matches(&[TokenKind::AmpersandAmpersand]) {
             let operator = self.next_token();
             let right = self.parse_equality_expression();
             left = Expression::Binary(BinaryExpression::new(left, operator, right));
         }
+
         left
     }
 
     fn parse_equality_expression(&mut self) -> Expression {
         let mut left = self.parse_comparison_expression();
+
         while self.token_matches(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
             let operator = self.next_token();
             let right = self.parse_comparison_expression();
             left = Expression::Binary(BinaryExpression::new(left, operator, right));
         }
+
         left
     }
 
     fn parse_comparison_expression(&mut self) -> Expression {
         let mut left = self.parse_range_expression();
+
         while self.token_matches(&[
             TokenKind::Greater,
             TokenKind::Lesser,
@@ -194,11 +229,13 @@ impl Parser {
             let right = self.parse_range_expression();
             left = Expression::Binary(BinaryExpression::new(left, operator, right));
         }
+
         left
     }
 
     fn parse_range_expression(&mut self) -> Expression {
         let left = self.parse_additive_expression();
+
         if self.peek(0).kind == TokenKind::DotDot {
             self.advance();
             let right = self.parse_additive_expression();
@@ -214,21 +251,25 @@ impl Parser {
 
     fn parse_additive_expression(&mut self) -> Expression {
         let mut left = self.parse_multiplicative_expression();
+
         while self.token_matches(&[TokenKind::Plus, TokenKind::Minus]) {
             let operator = self.next_token();
             let right = self.parse_multiplicative_expression();
             left = Expression::Binary(BinaryExpression::new(left, operator, right));
         }
+
         left
     }
 
     fn parse_multiplicative_expression(&mut self) -> Expression {
         let mut left = self.parse_unary_expression();
+
         while self.token_matches(&[TokenKind::Star, TokenKind::Slash]) {
             let operator = self.next_token();
             let right = self.parse_unary_expression();
             left = Expression::Binary(BinaryExpression::new(left, operator, right));
         }
+
         left
     }
 
@@ -244,6 +285,11 @@ impl Parser {
 
     fn parse_primary_expression(&mut self) -> Expression {
         match self.peek(0).kind {
+            TokenKind::Fun => {
+                let start = self.next_token().position;
+                Expression::Function(self.parse_function(start))
+            }
+
             TokenKind::OpenBracket => self.parse_collection_literal(),
             TokenKind::OpenParen => {
                 let open_paren = self.next_token();
@@ -255,6 +301,7 @@ impl Parser {
                     close_paren,
                 ))
             }
+
             TokenKind::True | TokenKind::False => {
                 let token = self.next_token();
                 let value = token.kind == TokenKind::True;
@@ -263,6 +310,7 @@ impl Parser {
                     token.position,
                 ))
             }
+
             TokenKind::Number => {
                 let token = self.next_token();
                 let value = match token.lexeme.parse::<Number>() {
@@ -279,6 +327,7 @@ impl Parser {
                     token.position,
                 ))
             }
+
             TokenKind::String => {
                 let token = self.next_token();
                 Expression::Literal(LiteralExpression::new(
@@ -286,6 +335,7 @@ impl Parser {
                     token.position,
                 ))
             }
+
             _ => {
                 let identifier = self.match_token(TokenKind::Identifier);
                 Expression::Name(NameExpression::new(identifier))
@@ -297,9 +347,103 @@ impl Parser {
         Expression::Collection(CollectionExpression { kind, position })
     }
 
+    fn parse_function(&mut self, start: Position) -> FunctionExpression {
+        self.match_token(TokenKind::OpenParen);
+
+        let mut parameters = Vec::new();
+
+        while !self.token_matches(&[TokenKind::CloseParen, TokenKind::Eof]) {
+            let name = self.match_token(TokenKind::Identifier);
+
+            self.match_token(TokenKind::Colon);
+
+            parameters.push((name, self.parse_type()));
+
+            if self.peek(0).kind != TokenKind::Comma {
+                break;
+            }
+
+            self.advance();
+        }
+
+        self.match_token(TokenKind::CloseParen);
+
+        let result = if self.peek(0).kind == TokenKind::Arrow {
+            self.advance();
+            self.parse_type()
+        } else {
+            Type::Unit
+        };
+
+        let body = self.parse_block_statement();
+
+        let end = self.tokens[self.current.saturating_sub(1).min(self.tokens.len() - 1)]
+            .position
+            .clone();
+
+        FunctionExpression {
+            parameters,
+            result,
+            body: Box::new(body),
+            position: Position::from(start, end),
+        }
+    }
+
     fn parse_type(&mut self) -> Type {
+        if self.peek(0).kind == TokenKind::Fun {
+            self.advance();
+            self.match_token(TokenKind::OpenParen);
+
+            let mut parameters = Vec::new();
+
+            while !self.token_matches(&[TokenKind::CloseParen, TokenKind::Eof]) {
+                parameters.push(self.parse_type());
+
+                if self.peek(0).kind != TokenKind::Comma {
+                    break;
+                }
+
+                self.advance();
+            }
+
+            self.match_token(TokenKind::CloseParen);
+            self.match_token(TokenKind::Arrow);
+
+            return Type::Function(parameters, Box::new(self.parse_type()));
+        }
+
+        if self.peek(0).kind == TokenKind::OpenBracket {
+            self.advance();
+
+            let mut fields = std::collections::BTreeMap::new();
+
+            while !self.token_matches(&[TokenKind::CloseBracket, TokenKind::Eof]) {
+                let name = self.match_token(TokenKind::Identifier);
+
+                self.match_token(TokenKind::Colon);
+
+                if fields.insert(name.lexeme, self.parse_type()).is_some() {
+                    self.diagnostic_bag
+                        .borrow_mut()
+                        .report(name.position, "Duplicate record type field");
+                }
+
+                if self.peek(0).kind != TokenKind::Comma {
+                    break;
+                }
+
+                self.advance();
+            }
+
+            self.match_token(TokenKind::CloseBracket);
+
+            return Type::Record(fields);
+        }
+
         let token = self.match_token(TokenKind::Identifier);
+
         match token.lexeme.as_str() {
+            "Unit" => Type::Unit,
             "Number" => Type::Number,
             "String" => Type::String,
             "Boolean" => Type::Boolean,
@@ -310,6 +454,7 @@ impl Parser {
                 self.match_token(TokenKind::Greater);
                 Type::List(Box::new(element))
             }
+
             "Map" => {
                 self.match_token(TokenKind::Lesser);
                 let key = self.parse_type();
@@ -318,6 +463,7 @@ impl Parser {
                 self.match_token(TokenKind::Greater);
                 Type::Map(Box::new(key), Box::new(value))
             }
+
             _ => {
                 self.diagnostic_bag
                     .borrow_mut()
@@ -331,6 +477,7 @@ impl Parser {
         let mut expression = self.parse_primary_expression();
         loop {
             let start = expression.get_position();
+
             match self.peek(0).kind {
                 TokenKind::OpenBracket => {
                     self.advance();
@@ -341,6 +488,7 @@ impl Parser {
                         Position::from(start, end),
                     );
                 }
+
                 TokenKind::Dot => {
                     self.advance();
                     let field = self.match_token(TokenKind::Identifier);
@@ -354,33 +502,34 @@ impl Parser {
                         Position::from(start, end),
                     );
                 }
+
                 TokenKind::OpenParen => {
                     self.advance();
+
                     let mut arguments = Vec::new();
+
                     while !self.token_matches(&[TokenKind::CloseParen, TokenKind::Eof]) {
                         arguments.push(self.parse_expression());
+
                         if self.peek(0).kind != TokenKind::Comma {
                             break;
                         }
+
                         self.advance();
                     }
+
                     let end = self.match_token(TokenKind::CloseParen).position;
-                    let name = if let Expression::Name(name) = expression {
-                        name.identifier.lexeme
-                    } else {
-                        self.diagnostic_bag
-                            .borrow_mut()
-                            .report(start.clone(), "Only named built-ins can be called");
-                        String::new()
-                    };
+
                     expression = Self::collection(
-                        CollectionKind::Call(name, arguments),
+                        CollectionKind::Call(Box::new(expression), arguments),
                         Position::from(start, end),
                     );
                 }
+
                 _ => break,
             }
         }
+
         expression
     }
 
@@ -397,44 +546,62 @@ impl Parser {
             let mut fields = Vec::new();
             loop {
                 let name = self.match_token(TokenKind::Identifier).lexeme;
+
                 self.match_token(TokenKind::Colon);
+
                 fields.push((name, self.parse_expression()));
+
                 if self.peek(0).kind != TokenKind::Comma {
                     break;
                 }
+
                 self.advance();
+
                 if self.token_matches(&[TokenKind::CloseBracket, TokenKind::Eof]) {
                     break;
                 }
             }
+
             CollectionKind::Record(fields)
         } else {
             let first = self.parse_expression();
+
             if self.peek(0).kind == TokenKind::Semicolon {
                 self.advance();
                 CollectionKind::Repeat(Box::new(first), Box::new(self.parse_expression()))
             } else if self.peek(0).kind == TokenKind::Colon {
                 self.advance();
+
                 let mut entries = vec![(first, self.parse_expression())];
+
                 while self.peek(0).kind == TokenKind::Comma {
                     self.advance();
+
                     if self.token_matches(&[TokenKind::CloseBracket, TokenKind::Eof]) {
                         break;
                     }
+
                     let key = self.parse_expression();
+
                     self.match_token(TokenKind::Colon);
+
                     entries.push((key, self.parse_expression()));
                 }
+
                 CollectionKind::Map(entries)
             } else {
                 let mut values = vec![first];
+
                 while self.peek(0).kind == TokenKind::Comma {
                     self.advance();
+
                     if self.token_matches(&[TokenKind::CloseBracket, TokenKind::Eof]) {
                         break;
                     }
+
                     values.push(self.parse_expression());
                 }
+
                 CollectionKind::List(values)
             }
         };
@@ -444,6 +611,7 @@ impl Parser {
 
     fn peek(&self, offset: usize) -> Token {
         let index = offset + self.current;
+
         if index < self.tokens.len() {
             self.tokens[index].clone()
         } else {
@@ -463,6 +631,7 @@ impl Parser {
 
     fn match_token(&mut self, kind: TokenKind) -> Token {
         let token = self.peek(0);
+
         if kind == token.kind {
             self.next_token()
         } else {
@@ -472,9 +641,11 @@ impl Parser {
                 token.kind,
             );
             let token = Token::new(kind, "%GENERATED%".to_string(), self.peek(0).position);
+
             if self.peek(0).kind != TokenKind::Eof {
                 self.advance();
             }
+
             token
         }
     }
